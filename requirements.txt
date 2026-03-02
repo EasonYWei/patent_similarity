@@ -1,0 +1,13 @@
+# 专利相似度计算项目依赖
+
+## 数据处理
+pandas>=2.0.0
+numpy>=1.24.0
+
+## 深度学习 (用于相似度计算)
+torch>=2.0.0
+transformers>=4.30.0
+sentence-transformers>=2.2.0
+
+## 其他工具
+tqdm>=4.65.0
