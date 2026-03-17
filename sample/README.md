@@ -17,6 +17,7 @@ sample/
 │   ├── sample_minilm_embeddings.csv   # Extracted from main output
 │   └── sample_citweighted_minilm_embeddings.csv  # Citation-weighted embeddings
 ├── scripts/                           # Inspection scripts
+│   ├── ps_self.R                      # 专利级别自相似度计算 (Patent-level self-similarity)
 │   ├── extract_sample_patents.py      # Extract sample from main data
 │   ├── inspect_embeddings.py          # Main inspection script (Python)
 │   ├── create_sample_embeddings.R     # Create sample from main embeddings
@@ -36,6 +37,39 @@ sample/
 | 000002 | 110     | 10 (2002-2014) | Medium years - normal case |
 | 000061 | 6       | 3 (2009-2012)  | Few years - lag-3 should be NA |
 | 000004 | 2       | 1 (2002)       | Single year - all similarities NA |
+
+## Patent-Level Self-Similarity / 专利级别自相似度
+
+### ps_self.R - 计算专利级别自相似度
+
+该脚本计算每家公司的每个专利与其之前所有专利的余弦相似度，输出三个变量：
+- **sim_max**: 最大余弦相似度
+- **sim_max_d**: 与最相似专利的日期间隔（天）
+- **sim_ave**: 平均余弦相似度
+
+```bash
+cd sample/scripts
+Rscript ps_self.R
+```
+
+**输入文件**:
+- `output/patent_level_paraphrase_inspection.csv` - 专利元数据及384维embeddings
+- `output/patent_level_paraphrase_embeddings.npy` - 专利embeddings (npy格式，可选)
+
+**输出文件**:
+- `output/patent_self_similarity.csv` - 包含 sim_max, sim_max_d, sim_ave 的结果
+
+**示例输出**:
+```
+stkcd,p_year,p_id,date,sim_max,sim_max_d,sim_ave
+2,2002,2002071026,2002-01-01,,,
+2,2002,2002122379,2002-01-01,0.9550683,0,0.9550683
+2,2004,2004089389,2004-01-01,0.8007952,730,0.7841423
+```
+
+**注意**: 每家公司的第一条专利没有相似度计算结果（因为之前没有专利），所以 sim_max/sim_max_d/sim_ave 为 NA。
+
+---
 
 ## Workflow / 工作流程
 
