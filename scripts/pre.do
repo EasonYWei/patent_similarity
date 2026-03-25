@@ -9,12 +9,14 @@ cd "."
 * 2. DATA LOADING & RENAMING
 *===============================================================================
 * Load only required variables to conserve memory
+* Added city and province fields for city-level analysis
 use 股票代码 newipzlid 年份 标题 摘要 申请日 专利类型 IPC 被引证次数 ///
+    市 市代码 省 省代码 ///
     using "data/patents.dta", clear
 
 * Rename variables to English abbreviations for consistency
-rename (股票代码 newipzlid 年份 标题 摘要 申请日 专利类型 IPC 被引证次数) ///
-       (stkcd p_id p_year p_tt p_abs p_date p_type p_ipc p_cite)
+rename (股票代码 newipzlid 年份 标题 摘要 申请日 专利类型 IPC 被引证次数 市 市代码 省 省代码) ///
+       (stkcd p_id p_year p_tt p_abs p_date p_type p_ipc p_cite city city_code province province_code)
 
 
 *===============================================================================

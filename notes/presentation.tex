@@ -1,0 +1,555 @@
+% 专利相似度计算方法介绍
+% Patent Similarity Calculation Pipeline
+\documentclass[aspectratio=169]{beamer}
+
+\usepackage[UTF8]{ctex}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{tikz}
+\usepackage{xcolor}
+\usetikzlibrary{shapes,arrows,positioning,calc}
+
+\usetheme{Madrid}
+\usecolortheme{whale}
+
+% 定义颜色
+\definecolor{darkgreen}{RGB}{0,100,0}
+\definecolor{lightblue}{RGB}{230,240,250}
+\definecolor{lightyellow}{RGB}{255,250,230}
+\definecolor{lightred}{RGB}{255,230,230}
+
+\title{专利相似度计算方法}
+\subtitle{基于 SBERT 的企业技术轨迹分析}
+\author{专利相似度计算项目}
+\date{\today}
+
+\begin{document}
+
+%=============================================================================
+% Frame 1: 研究思路与流程概览
+%=============================================================================
+\begin{frame}{研究思路与计算流程}
+
+\textbf{核心目标：}量化企业每年专利组合与历史专利的语义相似度，识别技术转型
+
+\vspace{0.3cm}
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=1.8cm,
+    box/.style={rectangle, draw=blue!60, fill=blue!5, thick, minimum width=2.8cm, minimum height=0.9cm, align=center, font=\small},
+    arrow/.style={->, >=stealth, thick}
+]
+
+% 输入层
+\node[box, fill=green!10, draw=green!60] (input) {原始专利数据\\(\texttt{.dta}, $\sim$2GB)};
+
+% 处理层
+\node[box, right of=input] (prep) {数据预处理\\(标题+摘要)};
+\node[box, right of=prep] (embed) {SBERT嵌入\\(384/512维)};
+\node[box, right of=embed] (agg) {Firm-Year\\聚合};
+
+% 输出层
+\node[box, right of=agg, fill=orange!10, draw=orange!60] (sim) {相似度计算\\(Cosine Sim)};
+
+% 箭头
+\draw[arrow] (input) -- (prep);
+\draw[arrow] (prep) -- (embed);
+\draw[arrow] (embed) -- (agg);
+\draw[arrow] (agg) -- (sim);
+
+\end{tikzpicture}
+\end{center}
+
+\vspace{0.4cm}
+
+\textbf{关键设计：}
+\begin{itemize}
+    \item \textbf{双模型验证：}MiniLM (384维) + DistilUSE (512维) 交叉验证
+    \item \textbf{双重聚合：}简单平均 + 引用加权平均
+    \item \textbf{长文本处理：}自动分块与溢出窗口机制
+\end{itemize}
+
+\end{frame}
+
+%=============================================================================
+% Frame 2: 专利嵌入过程 - 文本预处理
+%=============================================================================
+\begin{frame}{嵌入流程 Step 1：文本预处理}
+
+\textbf{输入数据示例：}（公司2，2002年，情景花园洋房专利）
+
+\vspace{0.2cm}
+
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\fcolorbox{blue!50}{lightblue}{%
+\begin{minipage}{0.95\textwidth}
+\small
+\textbf{标题 (p\_tt)：}\\
+情景花园洋房
+
+\vspace{0.2cm}
+
+\textbf{摘要 (p\_abs)：}\\
+一种情景花园洋房, 每单元两户, 每户不仅包含了室内空间, 还包含了与外界情景环境容为一体的室外空间...该住宅容积率低, 建筑密度接近普通多层住宅, 居者与环境自然沟通, 提高居住质量。
+\end{minipage}%
+}
+\end{column}
+
+\begin{column}{0.48\textwidth}
+\fcolorbox{darkgreen!50}{lightyellow}{%
+\begin{minipage}{0.95\textwidth}
+\small
+\textbf{预处理操作：}
+\begin{enumerate}
+    \item 合并文本：\texttt{text = p\_tt + " " + p\_abs}
+    \item 正则清理：去除多余空格
+    \item 标记空文本：本例为非空
+    \item 创建复合键：\\
+    \texttt{stkcd\_year = "2\_2002"}
+\end{enumerate}
+\end{minipage}%
+}
+\end{column}
+\end{columns}
+
+\vspace{0.4cm}
+
+\textbf{预处理统计：}（公司2全量数据）
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{年份} & \textbf{专利数} & \textbf{非空文本} & \textbf{平均字数} & \textbf{stkcd\_year} \\
+\midrule
+2002 & 3 & 3 & 156 & 2\_2002 \\
+2004 & 9 & 9 & 89 & 2\_2004 \\
+2005 & 2 & 2 & 94 & 2\_2005 \\
+2006 & 41 & 41 & 102 & 2\_2006 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\end{frame}
+
+%=============================================================================
+% Frame 3: 专利嵌入过程 - SBERT编码
+%=============================================================================
+\begin{frame}{嵌入流程 Step 2：SBERT 语义编码}
+
+\textbf{编码过程：}将文本转换为 384 维向量（以 MiniLM 模型为例）
+
+\vspace{0.3cm}
+
+\begin{columns}[T]
+\begin{column}{0.55\textwidth}
+\fcolorbox{blue!50}{lightblue}{%
+\begin{minipage}{0.95\textwidth}
+\small
+\textbf{输入文本（截断示意）：}\\
+\texttt{情景花园洋房 一种情景花园洋房, 每单元两户, 每户不仅包含了室内空间, 还包含了...}
+
+\vspace{0.3cm}
+
+\textbf{Tokenization：}\\
+Token数 $\approx$ 68 tokens $<$ 512 (max\_seq\_length)
+
+\vspace{0.1cm}
+\textit{无需分块处理}
+
+\vspace{0.3cm}
+
+\textbf{SBERT 编码：}\\
+$\mathbf{e} = \text{MiniLM}(\text{tokens}) \in \mathbb{R}^{384}$
+\end{minipage}%
+}
+\end{column}
+
+\begin{column}{0.42\textwidth}
+\fcolorbox{orange!50}{white}{%
+\begin{minipage}{0.95\textwidth}
+\small
+\textbf{输出向量示例：}
+
+\vspace{0.2cm}
+
+$\mathbf{e} = [e_0, e_1, ..., e_{383}]$
+
+\vspace{0.2cm}
+
+$e_0 = 0.0234$\\
+$e_1 = -0.1567$\\
+$e_2 = 0.0891$\\
+$e_3 = -0.0234$\\
+$...$\\
+$e_{383} = 0.0456$
+
+\vspace{0.2cm}
+
+$\|\mathbf{e}\|_2 \approx 1.0$
+
+\vspace{0.1cm}
+\textit{（已归一化）}
+\end{minipage}%
+}
+\end{column}
+\end{columns}
+
+\vspace{0.4cm}
+
+\textbf{长文本处理机制：}
+\begin{itemize}
+    \item 当 Token数 $>$ 512 时，使用 \texttt{overflow\_windows} 分块
+    \item 优先按句子分割：\texttt{(?<=[。；;!?！？])}
+    \item 超长文本按 Token 边界分割，均值聚合
+\end{itemize}
+
+\end{frame}
+
+%=============================================================================
+% Frame 4: 专利嵌入过程 - Firm-Year聚合
+%=============================================================================
+\begin{frame}{嵌入流程 Step 3：Firm-Year 聚合}
+
+\textbf{聚合逻辑：}将同一年份的所有专利向量聚合成企业年度技术表征
+
+\vspace{0.3cm}
+
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\textbf{简单平均：}
+\begin{equation*}
+\bar{\mathbf{e}}_{f,y} = \frac{1}{N_{f,y}} \sum_{i=1}^{N_{f,y}} \mathbf{e}_i
+\end{equation*}
+
+\vspace{0.2cm}
+
+\textbf{引用加权：}
+\begin{equation*}
+\tilde{\mathbf{e}}_{f,y} = \frac{1}{\sum c_i} \sum_{i=1}^{N_{f,y}} c_i \cdot \mathbf{e}_i
+\end{equation*}
+\end{column}
+
+\begin{column}{0.48\textwidth}
+\fcolorbox{darkgreen!50}{lightyellow}{%
+\begin{minipage}{0.95\textwidth}
+\small
+\textbf{公司2，2002年示例：}
+
+\vspace{0.2cm}
+
+专利1：$\mathbf{e}_1$（引用12）\\
+专利2：$\mathbf{e}_2$（引用7）\\
+专利3：$\mathbf{e}_3$（引用9）
+
+\vspace{0.2cm}
+
+$\bar{\mathbf{e}} = \frac{\mathbf{e}_1 + \mathbf{e}_2 + \mathbf{e}_3}{3}$
+
+\vspace{0.1cm}
+
+$\tilde{\mathbf{e}} = \frac{12\mathbf{e}_1 + 7\mathbf{e}_2 + 9\mathbf{e}_3}{28}$
+\end{minipage}%
+}
+\end{column}
+\end{columns}
+
+\vspace{0.4cm}
+
+\textbf{输出数据结构：}
+
+\begin{center}
+\small
+\begin{tabular}{cccccccc}
+\toprule
+\textbf{stkcd} & \textbf{p\_year} & \textbf{n\_patents} & \textbf{n\_texts\_used} & \textbf{total\_citations} & \textbf{emb\_0} & \textbf{...} & \textbf{emb\_383} \\
+\midrule
+2 & 2002 & 3 & 3 & 28 & 0.0123 & ... & -0.0456 \\
+2 & 2004 & 9 & 9 & 26 & 0.0234 & ... & -0.0345 \\
+2 & 2006 & 41 & 41 & 58 & 0.0189 & ... & -0.0567 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\end{frame}
+
+%=============================================================================
+% Frame 5: 相似度计算
+%=============================================================================
+\begin{frame}{嵌入流程 Step 4：相似度计算}
+
+\textbf{三种相似度指标：}（R脚本 \texttt{calculate\_similarities}）
+
+\vspace{0.3cm}
+
+\begin{center}
+\begin{tabular}{p{3cm}p{6cm}p{4cm}}
+\toprule
+\textbf{指标} & \textbf{计算公式} & \textbf{经济含义} \\
+\midrule
+\texttt{cos\_sim\_lag1} & 
+$\cos(\mathbf{e}_t, \mathbf{e}_{t-1}) = \frac{\mathbf{e}_t \cdot \mathbf{e}_{t-1}}{\|\mathbf{e}_t\| \|\mathbf{e}_{t-1}\|}$ & 
+与上一年技术方向的偏离程度 \\
+\midrule
+\texttt{cos\_sim\_lag3} & 
+$\cos\left(\mathbf{e}_t, \frac{1}{3}\sum_{k=1}^3 \mathbf{e}_{t-k}\right)$ & 
+与前3年技术趋势的偏离程度 \\
+\midrule
+\texttt{cos\_sim\_cumulative} & 
+$\cos\left(\mathbf{e}_t, \frac{1}{t-1}\sum_{k=1}^{t-1} \mathbf{e}_k\right)$ & 
+与历史累积技术轨迹的偏离程度 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{0.4cm}
+
+\textbf{安全计算机制：}
+\begin{itemize}
+    \item 零向量/NA/Inf 检测，返回 NA 而非强制置0
+    \item 按 \texttt{stkcd} 分组排序，确保时间序列正确
+    \item 双模型交叉验证：MiniLM 和 DistilUSE 结果相互印证
+\end{itemize}
+
+\end{frame}
+
+%=============================================================================
+% Frame 6: 计算有效性 - 公司2案例背景
+%=============================================================================
+\begin{frame}{计算有效性：公司2技术转型案例}
+
+\textbf{公司概况：}股票代码 2，数据跨度 2002--2014 年（房地产行业相关）
+
+\vspace{0.3cm}
+
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\textbf{相似度轨迹：}
+
+\vspace{0.2cm}
+
+\small
+\begin{tabular}{cccc}
+\toprule
+年份 & 专利数 & MiniLM & Distil \\
+\midrule
+2006 & 41 & 0.817 & 0.799 \\
+2007 & 3 & 0.626 & 0.487 \\
+2008 & 30 & 0.606 & 0.409 \\
+\rowcolor{red!15}
+2009 & 1 & 0.334 & 0.182 \\
+\rowcolor{red!15}
+2010 & 12 & 0.378 & 0.233 \\
+2013 & 2 & 0.732 & 0.666 \\
+\bottomrule
+\end{tabular}
+
+\vspace{0.3cm}
+
+\normalsize
+\textbf{转型识别：}\\
+2009--2010 年相似度 $<$ 0.5，\\
+触发技术转型信号
+\end{column}
+
+\begin{column}{0.48\textwidth}
+\textbf{转型特征分析：}
+
+\vspace{0.2cm}
+
+\begin{enumerate}
+    \item \textbf{渐进式下降：}2007--2009 年相似度逐步下降
+    \item \textbf{断裂点：}2009 年相似度骤降至 0.33/0.18
+    \item \textbf{转型期：}2009--2010 年维持低相似度
+    \item \textbf{恢复稳定：}2013 年后相似度回升至 0.7+
+\end{enumerate}
+
+\vspace{0.2cm}
+
+\textit{表明企业经历了约 3 年的技术转型期}
+\end{column}
+\end{columns}
+
+\end{frame}
+
+%=============================================================================
+% Frame 7: 计算有效性 - 公司2专利文本对比
+%=============================================================================
+\begin{frame}{转型前后专利文本对比：公司2}
+
+\textbf{转型前（2006年）：住宅/建筑设计领域}
+
+\vspace{0.1cm}
+
+\fcolorbox{blue!50}{lightblue}{%
+\begin{minipage}{0.95\textwidth}
+\footnotesize
+\textbf{标题：}带垃圾收集装置的橱柜
+
+\textbf{摘要：}本实用新型涉及一种带垃圾收集装置的橱柜，包括上端覆盖台面的柜体、与所述台面连接的附加板、固定在所述柜体侧面的垃圾桶，所述附加板上靠近所述柜体侧面附近设有漏孔，所述垃圾桶设置在所述漏孔的正下方...
+
+\textit{关键词：橱柜、垃圾收集、厨房设施}
+\end{minipage}%
+}
+
+\vspace{0.3cm}
+
+\textbf{转型期（2009年）：电子/控制领域}
+
+\vspace{0.1cm}
+
+\fcolorbox{red!50}{lightred}{%
+\begin{minipage}{0.95\textwidth}
+\footnotesize
+\textbf{标题：}止吠器
+
+\textbf{摘要：}本实用新型公开了一种止吠器，包括电源电路、选频触发电路、电子开关电路、微控制电路和高压电路，其中，选频触发电路的输入端接收声音信号，其输出端输出的电信号控制电子开关电路...
+
+\textit{关键词：电子电路、微控制、信号处理}
+\end{minipage}%
+}
+
+\vspace{0.2cm}
+
+\textbf{语义分析：}从传统家居设计转向电子控制技术，技术方向发生根本性变化，\textbf{验证相似度下降的有效性}
+
+\end{frame}
+
+%=============================================================================
+% Frame 8: 计算有效性 - 公司12案例
+%=============================================================================
+\begin{frame}{计算有效性：公司12战略式转型案例}
+
+\textbf{公司概况：}股票代码 12，数据跨度 2001--2023 年（玻璃制造行业）
+
+\vspace{0.3cm}
+
+\begin{columns}[T]
+\begin{column}{0.48\textwidth}
+\textbf{相似度轨迹：}
+
+\vspace{0.2cm}
+
+\small
+\begin{tabular}{cccc}
+\toprule
+年份 & 专利数 & MiniLM & Distil \\
+\midrule
+2017 & 70 & 0.859 & 0.881 \\
+2018 & 47 & 0.940 & 0.927 \\
+2019 & 12 & 0.954 & 0.914 \\
+\rowcolor{red!15}
+2020 & 1 & 0.493 & 0.122 \\
+\rowcolor{red!15}
+2021 & 7 & 0.406 & 0.131 \\
+2022 & 3 & 0.820 & 0.673 \\
+\bottomrule
+\end{tabular}
+
+\vspace{0.3cm}
+
+\normalsize
+\textbf{转型识别：}\\
+长期高度稳定后突然断裂，\\
+2020--2021 相似度 $<$ 0.5
+\end{column}
+
+\begin{column}{0.48\textwidth}
+\textbf{转型特征分析：}
+
+\vspace{0.2cm}
+
+\begin{enumerate}
+    \item \textbf{长期深耕：}2007--2019 年相似度稳定在 0.7--0.95
+    \item \textbf{突然断裂：}2020 年从 0.95 骤降至 0.49/0.12
+    \item \textbf{战略转型：}2021 年进一步降至 0.41/0.13
+    \item \textbf{快速稳定：}2022--2023 年相似度回升
+\end{enumerate}
+
+\vspace{0.2cm}
+
+\textit{典型的"战略式转型"：深耕多年后主动切换赛道}
+\end{column}
+\end{columns}
+
+\end{frame}
+
+%=============================================================================
+% Frame 9: 计算有效性 - 公司12专利文本对比
+%=============================================================================
+\begin{frame}{转型前后专利文本对比：公司12}
+
+\textbf{转型前（2019年）：玻璃深加工/镀膜领域}
+
+\vspace{0.1cm}
+
+\fcolorbox{blue!50}{lightblue}{%
+\begin{minipage}{0.95\textwidth}
+\footnotesize
+\textbf{标题：}电容式触摸屏
+
+\textbf{摘要：}本实用新型公开了一种电容式触摸屏，包括基板、设置在所述基板表面上的电极层以及设置在所述电极层上的多个感光胶保护块；所述电极层包括第一方向电极、第二方向电极以及多个接线桥...
+
+\textit{关键词：触摸屏、电极层、镀膜玻璃}
+\end{minipage}%
+}
+
+\vspace{0.3cm}
+
+\textbf{转型期（2021年）：光伏/新能源领域}
+
+\vspace{0.1cm}
+
+\fcolorbox{red!50}{lightred}{%
+\begin{minipage}{0.95\textwidth}
+\footnotesize
+\textbf{标题：}光伏组件测试架
+
+\textbf{摘要：}一种光伏组件测试架，包括支撑架、可旋转的调节组件架、可旋转的辅助支架和连接件，所述调节组件架与所述支撑架活动相连...可以旋转不同的角度，满足光伏组件不同角度的测试需求...
+
+\textit{关键词：光伏组件、太阳能、测试设备}
+\end{minipage}%
+}
+
+\vspace{0.2cm}
+
+\textbf{语义分析：}从电子玻璃/触控屏领域转向光伏新能源领域，\textbf{双模型一致识别出转型信号}
+
+\end{frame}
+
+%=============================================================================
+% Frame 10: 总结
+%=============================================================================
+\begin{frame}{总结}
+
+\textbf{方法优势：}
+\begin{itemize}
+    \item \textbf{语义层面：}基于 SBERT 捕获专利文本深层语义，超越传统关键词匹配
+    \item \textbf{技术完备：}长文本处理、多GPU加速、流式分块，支持大规模数据
+    \item \textbf{结果可靠：}双模型交叉验证 + 引用加权稳健性检验
+\end{itemize}
+
+\vspace{0.3cm}
+
+\textbf{识别出的转型模式：}
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{模式} & \textbf{特征} & \textbf{典型案例} \\
+\midrule
+渐进式转型 & 相似度逐年下降，2--3年转型期 & 公司2（2007--2010） \\
+战略式转型 & 长期稳定后突然断裂 & 公司12（2020--2021） \\
+探索式转型 & 快速恢复并达到更高相似度 & 公司518 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{0.3cm}
+
+\textbf{应用价值：}投资研究、产业政策监测、竞争分析预警
+
+\end{frame}
+
+\end{document}

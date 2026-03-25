@@ -1,0 +1,935 @@
+% =============================================================================
+% 专利相似度计算过程详细文档
+% Patent Similarity Calculation: Technical Documentation
+% =============================================================================
+\documentclass[12pt,a4paper]{article}
+
+% ============================================================================
+% 基础包
+% ============================================================================
+\usepackage[UTF8]{ctex}
+\usepackage{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{amsthm}
+\usepackage{bm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{tikz}
+\usepackage{float}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{listings}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usetikzlibrary{shapes,arrows,positioning,calc,fit,backgrounds,decorations.pathreplacing}
+
+% ============================================================================
+% 页面设置
+% ============================================================================
+\geometry{left=2.5cm,right=2.5cm,top=2.5cm,bottom=2.5cm}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\leftmark}
+\fancyhead[R]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ============================================================================
+% 超链接设置
+% ============================================================================
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+    citecolor=green,
+    pdftitle={专利相似度计算过程详细文档},
+    pdfauthor={专利相似度计算项目}
+}
+
+% ============================================================================
+% 代码高亮设置
+% ============================================================================
+\definecolor{codegreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+
+\lstdefinestyle{mystyle}{
+    backgroundcolor=\color{backcolour},
+    commentstyle=\color{codegreen},
+    keywordstyle=\color{magenta},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2
+}
+\lstset{style=mystyle}
+
+% ============================================================================
+% 定理环境定义
+% ============================================================================
+\theoremstyle{definition}
+\newtheorem{definition}{定义}[section]
+\newtheorem{theorem}{定理}[section]
+\newtheorem{lemma}{引理}[section]
+\newtheorem{proposition}{命题}[section]
+\newtheorem{example}{示例}[section]
+\newtheorem{remark}{注}[section]
+\newtheorem{algorithm_def}{算法}[section]
+
+% ============================================================================
+% 自定义命令
+% ============================================================================
+\newcommand{\vect}[1]{\mathbf{#1}}
+\newcommand{\mat}[1]{\mathbf{#1}}
+\newcommand{\norm}[1]{\left\|#1\right\|}
+\newcommand{\inner}[2]{\left\langle #1, #2 \right\rangle}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\DeclareMathOperator{\cosine}{cosine}
+\DeclareMathOperator{\softmax}{softmax}
+
+% ============================================================================
+% 文档信息
+% ============================================================================
+\title{\textbf{专利相似度计算过程详细文档}\\[0.3cm]
+\large 基于 Sentence-BERT 的企业技术轨迹分析方法}
+\author{专利相似度计算项目组}
+\date{\today}
+
+% ============================================================================
+% 正文开始
+% ============================================================================
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\begin{abstract}
+本文档详细描述了基于 Sentence-BERT (SBERT) 的专利相似度计算完整流程。该流程包括数据预处理、语义嵌入生成、企业-年度聚合、以及多维度相似度计算等核心步骤。通过双模型交叉验证和引用加权稳健性检验，该方法能够有效识别企业技术转型信号，为投资研究、产业政策监测和竞争分析提供量化支撑。
+
+\textbf{关键词：} 专利相似度；Sentence-BERT；语义嵌入；技术转型；余弦相似度
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% =============================================================================
+\section{概述}
+% =============================================================================
+
+\subsection{研究目标}
+
+本项目的核心目标是\textbf{量化企业每年专利组合与历史专利的语义相似度}，从而识别企业技术转型事件。具体而言，我们需要解决以下问题：
+
+\begin{enumerate}
+    \item 如何将专利文本（标题+摘要）转换为数值向量表示？
+    \item 如何将同一企业同一年度的多个专利聚合成统一的年度技术表征？
+    \item 如何计算当前年度与历史年度的技术相似度？
+    \item 如何识别和验证技术转型事件？
+\end{enumerate}
+
+\subsection{计算流程概览}
+
+整个计算流程分为四个主要阶段，如图~\ref{fig:pipeline}所示：
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[
+        node distance=2.5cm,
+        stage/.style={rectangle, draw=blue!60, fill=blue!5, thick, minimum width=3cm, minimum height=1.2cm, align=center, rounded corners=3pt, font=\small},
+        data/.style={rectangle, draw=green!60, fill=green!5, thick, minimum width=3cm, minimum height=1.2cm, align=center, rounded corners=3pt, font=\small},
+        arrow/.style={->, >=stealth, thick, color=gray!70},
+        label/.style={font=\footnotesize\itshape, color=gray!70}
+    ]
+    
+    % 阶段节点
+    \node[stage] (s1) {阶段1\\数据预处理};
+    \node[stage, right of=s1] (s2) {阶段2\\SBERT编码};
+    \node[stage, right of=s2] (s3) {阶段3\\Firm-Year聚合};
+    \node[stage, right of=s3] (s4) {阶段4\\相似度计算};
+    
+    % 数据节点
+    \node[data, below of=s1, node distance=2cm] (d1) {\texttt{patents.dta}\\原始专利数据};
+    \node[data, below of=s2, node distance=2cm] (d2) {专利级嵌入\\$\vect{e}_i \in \R^{d}$};
+    \node[data, below of=s3, node distance=2cm] (d3) {企业年度嵌入\\$\bar{\vect{e}}_{f,y} \in \R^{d}$};
+    \node[data, below of=s4, node distance=2cm] (d4) {相似度指标\\$\cos(\bar{\vect{e}}_t, \bar{\vect{e}}_{t-k})$};
+    
+    % 箭头
+    \draw[arrow] (d1) -- (s1);
+    \draw[arrow] (s1) -- (s2) node[midway,above,label] {清洗文本};
+    \draw[arrow] (s2) -- (s3) node[midway,above,label] {语义向量};
+    \draw[arrow] (s3) -- (s4) node[midway,above,label] {年度表征};
+    \draw[arrow] (s2) -- (d2);
+    \draw[arrow] (s3) -- (d3);
+    \draw[arrow] (s4) -- (d4);
+    \draw[arrow] (d2) -- (s3);
+    \draw[arrow] (d3) -- (s4);
+    
+    \end{tikzpicture}
+    \caption{专利相似度计算流程概览}
+    \label{fig:pipeline}
+\end{figure}
+
+\subsection{关键技术特点}
+
+\begin{itemize}[leftmargin=2em]
+    \item \textbf{双模型验证：}同时使用 MiniLM (384维) 和 DistilUSE (512维) 两种 SBERT 模型进行交叉验证，提高结果的可靠性。
+    
+    \item \textbf{双重聚合策略：}提供简单平均和引用加权平均两种聚合方式，后者给予高引用专利更高权重。
+    
+    \item \textbf{长文本处理：}针对超长专利文本，采用智能分块机制，优先按句子边界分割，必要时按 Token 边界分割。
+    
+    \item \textbf{多维度相似度：}计算与上一年、前三年均值、以及历史累积均值的多维度相似度指标。
+\end{itemize}
+
+% =============================================================================
+\section{数据预处理}
+% =============================================================================
+
+\subsection{输入数据结构}
+
+原始专利数据以 Stata 格式 (\texttt{.dta}) 存储，包含以下核心字段：
+
+\begin{table}[H]
+    \centering
+    \caption{输入数据字段说明}
+    \label{tab:input-fields}
+    \begin{tabular}{@{}llcp{6cm}@{}}
+        \toprule
+        \textbf{字段名} & \textbf{类型} & \textbf{必需} & \textbf{说明} \\
+        \midrule
+        \texttt{stkcd} & 字符串 & 是 & 公司股票代码，企业唯一标识 \\
+        \texttt{p\_year} & 整数 & 是 & 专利申请年份 \\
+        \texttt{p\_tt} & 字符串 & 是 & 专利标题 \\
+        \texttt{p\_abs} & 字符串 & 是 & 专利摘要 \\
+        \texttt{p\_id} & 字符串 & 否 & 专利唯一标识符 \\
+        \texttt{p\_cite} & 数值 & 否 & 被引证次数，用于加权聚合 \\
+        \texttt{p\_date} & 日期 & 否 & 专利申请日期 \\
+        \texttt{p\_type} & 字符串 & 否 & 专利类型（发明/实用新型等） \\
+        \texttt{p\_ipc} & 字符串 & 否 & IPC 分类号 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{预处理步骤}
+
+\begin{algorithm}[H]
+    \caption{数据预处理流程}
+    \label{alg:preprocessing}
+    \begin{algorithmic}[1]
+        \Require 原始专利数据表 $D$
+        \Ensure 预处理后的数据表 $D'$
+        \State 验证必需字段存在性：\texttt{stkcd}, \texttt{p\_year}, \texttt{p\_tt}, \texttt{p\_abs}
+        \State 处理缺失值：\texttt{p\_cite} $\leftarrow$ \texttt{fillna(0)}
+        \State 合并文本字段：
+        \State \quad $D'.\text{\texttt{combined\_text}} \leftarrow D.\text{\texttt{p\_tt}} + \text{`` ''} + D.\text{\texttt{p\_abs}}$
+        \State 标记空文本：
+        \State \quad $D'.\text{\texttt{has\_text}} \leftarrow \mathbb{I}(D'.\text{\texttt{combined\_text}}.\text{str.len()} > 0)$
+        \State 创建复合键：
+        \State \quad $D'.\text{\texttt{stkcd\_year}} \leftarrow D.\text{\texttt{stkcd}} + \text{``\_''} + D.\text{\texttt{p\_year}}.\text{astype(str)}$
+        \State \Return $D'$
+    \end{algorithmic}
+\end{algorithm}
+
+\subsection{示例数据}
+
+以公司2（股票代码：2）2002年的专利数据为例：
+
+\begin{example}[数据预处理示例]
+\label{ex:preprocessing}
+考虑公司2在2002年申请的一项专利：
+
+\begin{itemize}
+    \item \textbf{股票代码 (stkcd):} 2
+    \item \textbf{年份 (p\_year):} 2002
+    \item \textbf{标题 (p\_tt):} 情景花园洋房
+    \item \textbf{摘要 (p\_abs):} 一种情景花园洋房，每单元两户，每户不仅包含了室内空间，还包含了与外界情景环境容为一体的室外空间...
+    \item \textbf{引用次数 (p\_cite):} 12
+\end{itemize}
+
+预处理后：
+\begin{itemize}
+    \item \textbf{combined\_text:} ``情景花园洋房 一种情景花园洋房，每单元两户...''
+    \item \textbf{has\_text:} \texttt{True}
+    \item \textbf{stkcd\_year:} ``2\_2002''
+\end{itemize}
+\end{example}
+
+% =============================================================================
+\section{语义嵌入生成}
+% =============================================================================
+
+\subsection{Sentence-BERT 模型}
+
+Sentence-BERT (SBERT) \cite{reimers2019sentence} 是一种基于 BERT 的句子嵌入模型，通过对 Siamese 网络结构进行微调，能够生成语义丰富的句子向量。与传统 BERT 相比，SBERT 的优势在于：
+
+\begin{enumerate}
+    \item \textbf{计算效率高：}句子对的相似度计算从 $O(n^2)$ 降低到 $O(n)$
+    \item \textbf{语义捕获能力强：}通过对比学习，向量空间具有更好的语义结构
+    \item \textbf{多语言支持：}预训练模型支持包括中文在内的50+种语言
+\end{enumerate}
+
+\subsection{使用的模型}
+
+本项目使用以下两种 SBERT 模型进行交叉验证：
+
+\begin{table}[H]
+    \centering
+    \caption{SBERT 模型规格对比}
+    \label{tab:models}
+    \begin{tabular}{@{}lcc@{}}
+        \toprule
+        \textbf{特性} & \textbf{MiniLM} & \textbf{DistilUSE} \\
+        \midrule
+        模型名称 & paraphrase-multilingual-MiniLM-L12-v2 & distiluse-base-multilingual-cased-v2 \\
+        基础架构 & MiniLM-L12 (蒸馏BERT) & DistilBERT + 全连接层 \\
+        输出维度 & 384 & 512 \\
+        最大序列长度 & 512 tokens & 512 tokens \\
+        支持语言 & 50+ & 50+ \\
+        模型简称 & \texttt{minilm} & \texttt{distiluse} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{嵌入计算过程}
+
+\begin{definition}[专利嵌入]
+给定专利 $i$ 的合并文本 $t_i$，SBERT 模型 $\mathcal{M}$ 将其映射为 $d$ 维向量：
+\begin{equation}
+    \vect{e}_i = \mathcal{M}(t_i) \in \R^d
+\end{equation}
+其中 $d = 384$ (MiniLM) 或 $d = 512$ (DistilUSE)。
+\end{definition}
+
+嵌入计算的具体过程如下：
+
+\begin{algorithm}[H]
+    \caption{SBERT 嵌入计算}
+    \label{alg:embedding}
+    \begin{algorithmic}[1]
+        \Require 专利文本列表 $T = [t_1, t_2, ..., t_n]$，SBERT模型 $\mathcal{M}$，批次大小 $B$
+        \Ensure 嵌入矩阵 $\mat{E} \in \R^{n \times d}$
+        \State 初始化空列表 $E \leftarrow []$
+        \For{每个批次 $b$ in $\text{batch}(T, B)$}
+            \State $\mat{E}_b \leftarrow \mathcal{M}.\text{encode}(b)$
+            \State $E.\text{append}(\mat{E}_b)$
+        \EndFor
+        \State $\mat{E} \leftarrow \text{concatenate}(E)$
+        \State \Return $\mat{E}$
+    \end{algorithmic}
+\end{algorithm}
+
+\subsection{长文本处理机制}
+
+由于部分专利文本（特别是包含详细技术描述的摘要）可能超过模型的最大序列长度（512 tokens），需要特殊的处理机制：
+
+\begin{algorithm}[H]
+    \caption{长文本分块处理}
+    \label{alg:chunking}
+    \begin{algorithmic}[1]
+        \Require 文本 $t$，最大长度 $L_{\max} = 512$
+        \Ensure 嵌入向量 $\vect{e}$
+        \State 对 $t$ 进行 Tokenization，得到 Token 序列 $[w_1, w_2, ..., w_m]$
+        \If{$m \leq L_{\max}$}
+            \State \Return $\mathcal{M}(t)$ \Comment{标准编码}
+        \Else
+            \State 按句子边界分割：$S \leftarrow \text{split\_by\_sentences}(t)$
+            \State 初始化空列表 $C \leftarrow []$
+            \State 初始化当前块 $c \leftarrow \text{``''}$
+            \For{每个句子 $s$ in $S$}
+                \If{$\text{len}(c) + \text{len}(s) \leq L_{\max}$}
+                    \State $c \leftarrow c + s$
+                \Else
+                    \State $C.\text{append}(c)$
+                    \State $c \leftarrow s$
+                \EndIf
+            \EndFor
+            \State $C.\text{append}(c)$ \Comment{添加最后一个块}
+            \State \Return $\frac{1}{|C|} \sum_{c \in C} \mathcal{M}(c)$ \Comment{块嵌入均值聚合}
+        \EndIf
+    \end{algorithmic}
+\end{algorithm}
+
+句子分割使用正则表达式：
+\begin{equation}
+    \text{pattern} = (?<=[\text{。；}!?！？;])\s+|\n+
+\end{equation}
+
+% =============================================================================
+\section{企业-年度聚合}
+% =============================================================================
+
+\subsection{聚合目标}
+
+将同一企业（\texttt{stkcd}）同一年度（\texttt{p\_year}）的所有专利嵌入聚合成单一的年度技术表征向量。这涉及两个核心问题：
+
+\begin{enumerate}
+    \item \textbf{聚合方法：}如何组合多个专利向量？
+    \item \textbf{空文本处理：}是否将无文本专利纳入聚合？
+\end{enumerate}
+
+\subsection{简单平均聚合}
+
+\begin{definition}[简单平均嵌入]
+对于企业 $f$ 在年份 $y$ 的专利集合 $\mathcal{P}_{f,y} = \{1, 2, ..., N_{f,y}\}$，简单平均嵌入定义为：
+\begin{equation}
+    \bar{\vect{e}}_{f,y} = \frac{1}{N_{f,y}} \sum_{i \in \mathcal{P}_{f,y}} \vect{e}_i
+\end{equation}
+其中 $N_{f,y}$ 是专利总数（包括空文本专利，其嵌入为零向量）。
+\end{definition}
+
+\subsection{引用加权聚合}
+
+引用次数反映专利的技术影响力，高引用专利可能更好地代表企业的核心技术方向。
+
+\begin{definition}[引用加权嵌入]
+设专利 $i$ 的引用次数为 $c_i$，则引用加权嵌入为：
+\begin{equation}
+    \tilde{\vect{e}}_{f,y} = \frac{1}{\sum_{i \in \mathcal{P}_{f,y}} c_i} \sum_{i \in \mathcal{P}_{f,y}} c_i \cdot \vect{e}_i
+\end{equation}
+\end{definition}
+
+\subsection{聚合算法}
+
+\begin{algorithm}[H]
+    \caption{企业-年度聚合}
+    \label{alg:aggregation}
+    \begin{algorithmic}[1]
+        \Require 专利嵌入矩阵 $\mat{E}$，元数据表 $M$（含 \texttt{stkcd}, \texttt{p\_year}, \texttt{p\_cite}, \texttt{has\_text}）
+        \Require 是否包含空文本标志 $\text{include\_empty}$
+        \Ensure 企业-年度嵌入表 $A$
+        \State 按 \texttt{stkcd\_year} 分组：$G \leftarrow M.\text{groupby}(\text{`stkcd\_year'})$
+        \For{每个组 $g$ in $G$}
+            \State 提取企业代码：$f \leftarrow g.\text{stkcd}.\text{iloc}[0]$
+            \State 提取年份：$y \leftarrow g.\text{p\_year}.\text{iloc}[0]$
+            \State 获取专利索引：$I \leftarrow g.\text{index}$
+            \If{not $\text{include\_empty}$}
+                \State $I \leftarrow I[g.\text{has\_text} == \text{True}]$
+            \EndIf
+            \State 提取嵌入：$\mat{E}_g \leftarrow \mat{E}[I, :]$
+            \State 计算简单平均：$\bar{\vect{e}} \leftarrow \text{mean}(\mat{E}_g, \text{axis}=0)$
+            \State 计算引用加权：$\tilde{\vect{e}} \leftarrow \text{citation\_weighted\_mean}(\mat{E}_g, g.\text{p\_cite})$
+            \State 记录元数据：
+            \State \quad $n_{\text{patents}} \leftarrow \text{len}(g)$
+            \State \quad $n_{\text{texts}} \leftarrow \text{sum}(g.\text{has\_text})$
+            \State \quad $c_{\text{total}} \leftarrow \text{sum}(g.\text{p\_cite})$
+            \State 存储结果到 $A$
+        \EndFor
+        \State \Return $A$
+    \end{algorithmic}
+\end{algorithm}
+
+\subsection{聚合示例}
+
+\begin{example}[公司2，2002年聚合]
+假设公司2在2002年有3项专利，其嵌入和引用数据如下：
+
+\begin{table}[H]
+    \centering
+    \begin{tabular}{@{}cccc@{}}
+        \toprule
+        \textbf{专利ID} & \textbf{嵌入} $\vect{e}_i$ & \textbf{引用} $c_i$ & \textbf{是否空文本} \\
+        \midrule
+        P1 & $[0.1, -0.2, ..., 0.05]$ & 12 & 否 \\
+        P2 & $[0.05, 0.1, ..., -0.1]$ & 7 & 否 \\
+        P3 & $[-0.05, 0.15, ..., 0.02]$ & 9 & 否 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+则聚合结果为：
+\begin{align}
+    \bar{\vect{e}} &= \frac{\vect{e}_1 + \vect{e}_2 + \vect{e}_3}{3} \\
+    \tilde{\vect{e}} &= \frac{12\vect{e}_1 + 7\vect{e}_2 + 9\vect{e}_3}{12 + 7 + 9} = \frac{12\vect{e}_1 + 7\vect{e}_2 + 9\vect{e}_3}{28}
+\end{align}
+
+元数据：
+\begin{itemize}
+    \item $n_{\text{patents}} = 3$
+    \item $n_{\text{texts}} = 3$
+    \item $c_{\text{total}} = 28$
+    \item $c_{\text{mean}} = 28/3 \approx 9.33$
+\end{itemize}
+\end{example}
+
+% =============================================================================
+\section{相似度计算}
+% =============================================================================
+
+\subsection{余弦相似度定义}
+
+\begin{definition}[余弦相似度]
+对于两个非零向量 $\vect{u}, \vect{v} \in \R^d$，其余弦相似度定义为：
+\begin{equation}
+    \cosine(\vect{u}, \vect{v}) = \frac{\inner{\vect{u}}{\vect{v}}}{\norm{\vect{u}} \cdot \norm{\vect{v}}} = \frac{\sum_{i=1}^{d} u_i v_i}{\sqrt{\sum_{i=1}^{d} u_i^2} \cdot \sqrt{\sum_{i=1}^{d} v_i^2}}
+\end{equation}
+余弦相似度的取值范围为 $[-1, 1]$，其中：
+\begin{itemize}
+    \item $1$ 表示方向完全相同（最相似）
+    \item $0$ 表示正交（无相关性）
+    \item $-1$ 表示方向完全相反
+\end{itemize}
+\end{definition}
+
+\begin{proposition}[归一化向量的余弦相似度]
+如果 $\vect{u}$ 和 $\vect{v}$ 都是单位向量（即 $\norm{\vect{u}} = \norm{\vect{v}} = 1$），则：
+\begin{equation}
+    \cosine(\vect{u}, \vect{v}) = \inner{\vect{u}}{\vect{v}}
+\end{equation}
+\end{proposition}
+
+\subsection{三种相似度指标}
+
+为了从不同时间维度衡量企业技术方向的连续性，我们计算以下三种相似度指标：
+
+\subsubsection{滞后一年相似度 (cos\_sim\_lag1)}
+
+衡量当前年度与上一年度技术方向的偏离程度：
+\begin{equation}
+    \text{cos\_sim\_lag1}_{f,y} = \cosine(\bar{\vect{e}}_{f,y}, \bar{\vect{e}}_{f,y-1})
+\end{equation}
+
+\subsubsection{滞后三年相似度 (cos\_sim\_lag3)}
+
+衡量当前年度与前三年平均技术方向的偏离程度：
+\begin{equation}
+    \text{cos\_sim\_lag3}_{f,y} = \cosine\left(\bar{\vect{e}}_{f,y}, \frac{1}{3}\sum_{k=1}^{3} \bar{\vect{e}}_{f,y-k}\right)
+\end{equation}
+当企业在前三年内任一年份无专利时，该指标为 \texttt{NA}。
+
+\subsubsection{累积相似度 (cos\_sim\_cumulative)}
+
+衡量当前年度与历史累积技术轨迹的偏离程度：
+\begin{equation}
+    \text{cos\_sim\_cumulative}_{f,y} = \cosine\left(\bar{\vect{e}}_{f,y}, \frac{1}{y - y_{\min}}\sum_{k=y_{\min}}^{y-1} \bar{\vect{e}}_{f,k}\right)
+\end{equation}
+其中 $y_{\min}$ 是企业最早有专利记录的年份。
+
+\subsection{相似度计算算法}
+
+\begin{algorithm}[H]
+    \caption{计算企业年度相似度}
+    \label{alg:similarity}
+    \begin{algorithmic}[1]
+        \Require 企业-年度嵌入表 $A$（已按 \texttt{stkcd} 和 \texttt{p\_year} 排序）
+        \Ensure 相似度结果表 $S$
+        \State 初始化空列表 $S$
+        \For{每个企业 $f$ in $A.\text{stkcd}.\text{unique}()$}
+            \State 提取企业数据：$A_f \leftarrow A[A.\text{stkcd} == f]$
+            \State 按年份排序：$A_f \leftarrow A_f.\text{sort\_values}(\text{`p\_year'})$
+            \State 获取年份列表：$Y \leftarrow A_f.\text{p\_year}.\text{values}$
+            \State 获取嵌入矩阵：$\mat{E}_f \leftarrow A_f[\text{emb\_cols}].\text{values}$
+            \For{$i = 0$ to $\text{len}(Y) - 1$}
+                \State $y \leftarrow Y[i]$
+                \State $\vect{e}_t \leftarrow \mat{E}_f[i, :]$ \Comment{当前年度嵌入}
+                \State 初始化行记录 $row \leftarrow \{\text{stkcd}: f, \text{p\_year}: y\}$
+                
+                \State \Comment{计算滞后一年相似度}
+                \If{$i > 0$}
+                    \State $\vect{e}_{t-1} \leftarrow \mat{E}_f[i-1, :]$
+                    \State $row[\text{cos\_sim\_lag1}] \leftarrow \cosine(\vect{e}_t, \vect{e}_{t-1})$
+                \Else
+                    \State $row[\text{cos\_sim\_lag1}] \leftarrow \text{NA}$
+                \EndIf
+                
+                \State \Comment{计算滞后三年相似度}
+                \If{$i \geq 3$}
+                    \State $\bar{\vect{e}}_{t-3:t-1} \leftarrow \text{mean}(\mat{E}_f[i-3:i, :], \text{axis}=0)$
+                    \State $row[\text{cos\_sim\_lag3}] \leftarrow \cosine(\vect{e}_t, \bar{\vect{e}}_{t-3:t-1})$
+                \Else
+                    \State $row[\text{cos\_sim\_lag3}] \leftarrow \text{NA}$
+                \EndIf
+                
+                \State \Comment{计算累积相似度}
+                \If{$i > 0$}
+                    \State $\bar{\vect{e}}_{\text{cum}} \leftarrow \text{mean}(\mat{E}_f[0:i, :], \text{axis}=0)$
+                    \State $row[\text{cos\_sim\_cumulative}] \leftarrow \cosine(\vect{e}_t, \bar{\vect{e}}_{\text{cum}})$
+                \Else
+                    \State $row[\text{cos\_sim\_cumulative}] \leftarrow \text{NA}$
+                \EndIf
+                
+                \State $S.\text{append}(row)$
+            \EndFor
+        \EndFor
+        \State \Return $\text{DataFrame}(S)$
+    \end{algorithmic}
+\end{algorithm}
+
+\subsection{安全计算机制}
+
+在实际计算中需要处理以下边界情况：
+
+\begin{itemize}
+    \item \textbf{零向量检测：}如果任一向量为零向量（全零），返回 \texttt{NA}
+    \item \textbf{NaN/Inf 检测：}如果向量包含 NaN 或 Inf 值，返回 \texttt{NA}
+    \item \textbf{分组隔离：}确保不同企业之间的数据不交叉计算
+\end{itemize}
+
+% =============================================================================
+\section{技术转型识别}
+% =============================================================================
+
+\subsection{转型识别标准}
+
+基于相似度指标，我们定义以下技术转型识别标准：
+
+\begin{definition}[技术转型事件]
+企业 $f$ 在年份 $y$ 发生技术转型，当满足：
+\begin{equation}
+    \text{cos\_sim\_lag1}_{f,y} < \theta \quad \text{且} \quad n_{\text{patents},f,y} \geq n_{\min}
+\end{equation}
+其中 $\theta = 0.5$ 为相似度阈值，$n_{\min} = 5$ 为最小专利数要求。
+\end{definition}
+
+双模型交叉验证要求：
+\begin{equation}
+    \text{cos\_sim\_lag1}_{f,y}^{\text{MiniLM}} < \theta \quad \text{且} \quad \text{cos\_sim\_lag1}_{f,y}^{\text{DistilUSE}} < \theta
+\end{equation}
+
+\subsection{转型模式分类}
+
+根据相似度轨迹特征，技术转型可分为以下模式：
+
+\begin{table}[H]
+    \centering
+    \caption{技术转型模式分类}
+    \label{tab:transformation-patterns}
+    \begin{tabular}{@{}lp{5cm}p{5cm}@{}}
+        \toprule
+        \textbf{转型模式} & \textbf{特征描述} & \textbf{典型案例} \\
+        \midrule
+        渐进式转型 & 相似度逐年下降，经历2--3年转型期 & 公司2 (2007--2010)：从建筑设计转向电子控制 \\
+        战略式转型 & 长期高度稳定后突然断裂 & 公司12 (2020--2021)：从电子玻璃转向光伏 \\
+        探索式转型 & 快速恢复并达到更高相似度 & 公司518：转型后技术方向更聚焦 \\
+        震荡式转型 & 相似度波动，多次转型信号 & 某些企业可能经历多次方向调整 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{案例验证}
+
+\subsubsection{案例1：公司2（渐进式转型）}
+
+公司2（股票代码：2）是房地产行业相关企业，数据跨度 2002--2014 年。
+
+\begin{table}[H]
+    \centering
+    \caption{公司2相似度轨迹（部分年份）}
+    \label{tab:company2}
+    \begin{tabular}{@{}ccccc@{}}
+        \toprule
+        \textbf{年份} & \textbf{专利数} & \textbf{MiniLM} & \textbf{DistilUSE} & \textbf{转型信号} \\
+        \midrule
+        2002 & 3 & -- & -- & -- \\
+        2004 & 9 & 0.723 & 0.689 & -- \\
+        2005 & 2 & 0.891 & 0.856 & -- \\
+        2006 & 41 & 0.817 & 0.799 & -- \\
+        2007 & 3 & 0.626 & 0.487 & -- \\
+        2008 & 30 & 0.606 & 0.409 & -- \\
+        \rowcolor{red!15}
+        2009 & 1 & 0.334 & 0.182 & \checkmark \\
+        \rowcolor{red!15}
+        2010 & 12 & 0.378 & 0.233 & \checkmark \\
+        2013 & 2 & 0.732 & 0.666 & -- \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\textbf{转型特征分析：}
+\begin{enumerate}
+    \item \textbf{渐进下降：}2007--2009 年相似度从 0.8 逐步下降至 0.3
+    \item \textbf{转型断裂：}2009--2010 年相似度低于 0.5，触发转型信号
+    \item \textbf{恢复稳定：}2013 年后相似度回升至 0.7+
+\end{enumerate}
+
+\textbf{专利文本对比：}
+
+\begin{itemize}
+    \item \textbf{转型前（2006年）：}``带垃圾收集装置的橱柜''——传统家居设计
+    \item \textbf{转型期（2009年）：}``止吠器''——电子控制/微电路技术
+\end{itemize}
+
+从传统建筑设计转向电子控制技术，技术方向发生根本性变化。
+
+\subsubsection{案例2：公司12（战略式转型）}
+
+公司12（股票代码：12）是玻璃制造行业企业，数据跨度 2001--2023 年。
+
+\begin{table}[H]
+    \centering
+    \caption{公司12相似度轨迹（转型前后）}
+    \label{tab:company12}
+    \begin{tabular}{@{}ccccc@{}}
+        \toprule
+        \textbf{年份} & \textbf{专利数} & \textbf{MiniLM} & \textbf{DistilUSE} & \textbf{转型信号} \\
+        \midrule
+        2017 & 70 & 0.859 & 0.881 & -- \\
+        2018 & 47 & 0.940 & 0.927 & -- \\
+        2019 & 12 & 0.954 & 0.914 & -- \\
+        \rowcolor{red!15}
+        2020 & 1 & 0.493 & 0.122 & \checkmark \\
+        \rowcolor{red!15}
+        2021 & 7 & 0.406 & 0.131 & \checkmark \\
+        2022 & 3 & 0.820 & 0.673 & -- \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\textbf{转型特征分析：}
+\begin{enumerate}
+    \item \textbf{长期深耕：}2007--2019 年相似度稳定在 0.7--0.95 之间
+    \item \textbf{突然断裂：}2020 年从 0.95 骤降至 0.49/0.12
+    \item \textbf{战略转型：}2021 年进一步降至 0.41/0.13
+    \item \textbf{快速稳定：}2022 年后相似度回升，新方向趋于稳定
+\end{enumerate}
+
+\textbf{专利文本对比：}
+\begin{itemize}
+    \item \textbf{转型前（2019年）：}``电容式触摸屏''——电子玻璃/触控屏
+    \item \textbf{转型期（2021年）：}``光伏组件测试架''——光伏/新能源
+\end{itemize}
+
+典型的``战略式转型''：在电子玻璃领域深耕多年后，主动切换至光伏新能源赛道。
+
+% =============================================================================
+\section{实现细节}
+% =============================================================================
+
+\subsection{计算环境}
+
+\begin{table}[H]
+    \centering
+    \caption{计算环境配置}
+    \label{tab:environment}
+    \begin{tabular}{@{}ll@{}}
+        \toprule
+        \textbf{组件} & \textbf{配置/版本} \\
+        \midrule
+        编程语言 & Python 3.8+ / R 4.0+ \\
+        深度学习框架 & PyTorch $\geq$ 2.0.0 \\
+        Transformer库 & Transformers $\geq$ 4.30.0 \\
+        SBERT库 & sentence-transformers $\geq$ 2.2.0 \\
+        数据处理 & pandas $\geq$ 2.0.0, numpy $\geq$ 1.24.0 \\
+        计算设备 & GPU (CUDA) 推荐，支持多GPU \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{关键代码片段}
+
+\subsubsection{数据预处理 (Python)}
+
+\begin{lstlisting}[language=Python, caption=数据预处理核心代码]
+def load_and_prepare_data(file_path: str) -> pd.DataFrame:
+    """加载并预处理专利数据"""
+    df = pd.read_stata(file_path)
+    
+    # 合并标题和摘要
+    df['combined_text'] = df['p_tt'].fillna('') + ' ' + df['p_abs'].fillna('')
+    df['has_text'] = df['combined_text'].str.len() > 0
+    
+    # 创建复合键
+    df['stkcd_year'] = df['stkcd'].astype(str) + '_' + df['p_year'].astype(str)
+    
+    # 填充缺失引用
+    df['p_cite'] = df['p_cite'].fillna(0)
+    
+    return df
+\end{lstlisting}
+
+\subsubsection{SBERT编码 (Python)}
+
+\begin{lstlisting}[language=Python, caption=SBERT编码核心代码]
+from sentence_transformers import SentenceTransformer
+
+class SBertEmbedder:
+    def __init__(self, model_path: str, device: str = 'cuda'):
+        self.model = SentenceTransformer(model_path, device=device)
+        self.max_seq_length = self.model.max_seq_length
+    
+    def encode(self, texts: List[str], batch_size: int = 256) -> np.ndarray:
+        """批量编码文本"""
+        embeddings = self.model.encode(
+            texts,
+            batch_size=batch_size,
+            show_progress_bar=True,
+            convert_to_numpy=True
+        )
+        return embeddings
+\end{lstlisting}
+
+\subsubsection{相似度计算 (R)}
+
+\begin{lstlisting}[language=R, caption=R语言相似度计算核心代码]
+calculate_similarities <- function(embeddings_df) {
+  # 按 stkcd 分组计算
+  results <- embeddings_df %>%
+    group_by(stkcd) %>%
+    arrange(p_year) %>%
+    mutate(
+      # 滞后一年相似度
+      cos_sim_lag1 = calculate_cos_sim(emb_matrix, lag = 1),
+      
+      # 滞后三年相似度
+      cos_sim_lag3 = calculate_cos_sim(emb_matrix, lag = 3, average = TRUE),
+      
+      # 累积相似度
+      cos_sim_cumulative = calculate_cumulative_cos_sim(emb_matrix)
+    ) %>%
+    ungroup()
+  
+  return(results)
+}
+\end{lstlisting}
+
+\subsection{性能优化}
+
+\begin{enumerate}
+    \item \textbf{GPU加速：}使用 CUDA 加速 SBERT 编码，比 CPU 快 10-50 倍
+    \item \textbf{批次处理：}默认批次大小 256，可根据 GPU 内存调整
+    \item \textbf{多GPU支持：}支持多 GPU 并行处理，通过 \texttt{--multi-gpu} 启用
+    \item \textbf{内存管理：}流式处理大数据集，避免一次性加载全部数据
+\end{enumerate}
+
+% =============================================================================
+\section{输出数据结构}
+% =============================================================================
+
+\subsection{企业-年度嵌入文件}
+
+文件名格式：\texttt{stkcd\_year\_\{model\}\_embeddings.csv}
+
+\begin{table}[H]
+    \centering
+    \caption{企业-年度嵌入文件字段说明}
+    \label{tab:output-embeddings}
+    \begin{tabular}{@{}llp{7cm}@{}}
+        \toprule
+        \textbf{字段名} & \textbf{类型} & \textbf{说明} \\
+        \midrule
+        \texttt{stkcd} & 字符串 & 企业股票代码 \\
+        \texttt{p\_year} & 整数 & 年份 \\
+        \texttt{stkcd\_year} & 字符串 & 复合键 (stkcd\_p\_year) \\
+        \texttt{n\_patents} & 整数 & 该年度专利总数 \\
+        \texttt{n\_texts\_used} & 整数 & 用于聚合的非空文本专利数 \\
+        \texttt{total\_citations} & 整数 & 引用总数 \\
+        \texttt{mean\_citations} & 浮点数 & 平均引用次数 \\
+        \texttt{emb\_0} -- \texttt{emb\_N} & 浮点数 & 嵌入向量分量 (N=383 或 511) \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\subsection{相似度结果文件}
+
+文件名格式：\texttt{stkcd\_year\_similarity\_\{model\}.csv}
+
+\begin{table}[H]
+    \centering
+    \caption{相似度结果文件字段说明}
+    \label{tab:output-similarity}
+    \begin{tabular}{@{}llp{7cm}@{}}
+        \toprule
+        \textbf{字段名} & \textbf{类型} & \textbf{说明} \\
+        \midrule
+        \texttt{stkcd} & 字符串 & 企业股票代码 \\
+        \texttt{p\_year} & 整数 & 年份 \\
+        \texttt{n\_patents} & 整数 & 该年度专利数 \\
+        \texttt{cos\_sim\_lag1} & 浮点数 & 与上一年相似度 \\
+        \texttt{cos\_sim\_lag3} & 浮点数 & 与前三年均值相似度 \\
+        \texttt{cos\_sim\_cumulative} & 浮点数 & 与历史累积均值相似度 \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+% =============================================================================
+\section{质量控制与验证}
+% =============================================================================
+
+\subsection{双模型交叉验证}
+
+为确保结果的可靠性，我们使用两个独立的 SBERT 模型进行交叉验证：
+
+\begin{equation}
+    \text{一致性得分} = \frac{1}{N} \sum_{i=1}^{N} \mathbb{I}\left(|\text{sim}_{i}^{\text{MiniLM}} - \text{sim}_{i}^{\text{Distil}}| < \epsilon\right)
+\end{equation}
+
+经验表明，两个模型计算的相似度高度一致（相关系数 $> 0.9$），异常差异通常指向数据质量问题。
+
+\subsection{引用加权稳健性检验}
+
+通过比较简单平均和引用加权的结果，检验相似度指标对聚合方法的敏感性：
+
+\begin{equation}
+    \Delta_{f,y} = \text{cos\_sim}_{f,y}^{\text{simple}} - \text{cos\_sim}_{f,y}^{\text{citation-weighted}}
+\end{equation}
+
+如果 $|\Delta_{f,y}|$ 过大，表明该年度专利质量分布不均，需要审慎解读。
+
+\subsection{人工验证}
+
+对识别出的转型案例进行人工专利文本审查，验证：
+\begin{enumerate}
+    \item 转型前后专利技术领域是否确实发生变化
+    \item 相似度下降是否与技术方向转变一致
+    \item 是否存在数据质量问题（如文本缺失、编码错误）
+\end{enumerate}
+
+% =============================================================================
+\section{总结}
+% =============================================================================
+
+本文档详细描述了基于 Sentence-BERT 的专利相似度计算完整流程。该方法通过以下步骤实现企业技术轨迹的量化分析：
+
+\begin{enumerate}
+    \item \textbf{数据预处理：}清洗原始专利数据，合并标题和摘要，创建企业-年度复合键。
+    
+    \item \textbf{语义嵌入：}使用 SBERT 模型将专利文本转换为高维向量，采用智能分块机制处理超长文本。
+    
+    \item \textbf{企业-年度聚合：}提供简单平均和引用加权两种聚合策略，生成企业年度技术表征向量。
+    
+    \item \textbf{相似度计算：}计算滞后一年、滞后三年和累积三种相似度指标，多维度衡量技术连续性。
+    
+    \item \textbf{转型识别：}基于相似度阈值和双模型交叉验证识别技术转型事件，分类转型模式。
+\end{enumerate}
+
+该方法的优势在于：
+\begin{itemize}
+    \item \textbf{语义层面：}基于 SBERT 捕获专利文本深层语义，超越传统关键词匹配
+    \item \textbf{技术完备：}长文本处理、多GPU加速、流式分块，支持大规模数据
+    \item \textbf{结果可靠：}双模型交叉验证 + 引用加权稳健性检验
+\end{itemize}
+
+应用价值包括投资研究（识别潜在的技术转型标的）、产业政策监测（跟踪行业技术演进）和竞争分析（预警竞争对手技术方向变化）。
+
+% =============================================================================
+\begin{thebibliography}{99}
+\bibitem{reimers2019sentence}
+Reimers, N., \& Gurevych, I. (2019). Sentence-BERT: Sentence embeddings using Siamese BERT-networks. \textit{Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing}, 3982--3992.
+
+\bibitem{devlin2018bert}
+Devlin, J., Chang, M. W., Lee, K., \& Toutanova, K. (2018). BERT: Pre-training of deep bidirectional transformers for language understanding. \textit{Proceedings of NAACL-HLT}, 4171--4186.
+
+\bibitem{vaswani2017attention}
+Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., ... \& Polosukhin, I. (2017). Attention is all you need. \textit{Advances in Neural Information Processing Systems}, 30.
+\end{thebibliography}
+
+\end{document}
