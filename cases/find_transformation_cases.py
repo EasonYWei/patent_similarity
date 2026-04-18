@@ -1,156 +1,397 @@
 #!/usr/bin/env python3
-"""
-分析专利相似度数据，找出公司技术转型的典型案例。
-转型特征：cos_sim_lag1（与前一年的相似度）显著下降
-"""
+"""Find representative firm-year technology transformation cases."""
 
-import pandas as pd
-import numpy as np
+from __future__ import annotations
+
+import argparse
+import sys
 from pathlib import Path
 
-# 读取数据
-df_mini = pd.read_csv("output/stkcd_year_similarity_merged_minilm.csv")
-df_dist = pd.read_csv("output/stkcd_year_similarity_merged_distiluse.csv")
+import numpy as np
+import pandas as pd
 
-# 过滤有效数据（有lag1相似度的）
-df_mini_valid = df_mini[df_mini['cos_sim_lag1'].notna()].copy()
-df_dist_valid = df_dist[df_dist['cos_sim_lag1'].notna()].copy()
 
-print(f"MiniLM有效记录数: {len(df_mini_valid)}")
-print(f"DistilUSE有效记录数: {len(df_dist_valid)}")
+DEFAULT_MINI_FILE = Path("output/stkcd_year_similarity_merged_minilm.csv")
+DEFAULT_DIST_FILE = Path("output/stkcd_year_similarity_merged_distiluse.csv")
+DEFAULT_META_FILE = Path("data/stkcd_info.xlsx")
+DEFAULT_CANDIDATE_OUTPUT = Path("cases/transformation_case_candidates.csv")
+DEFAULT_TOP_OUTPUT = Path("cases/transformation_case_top5.csv")
 
-# 计算相似度下降幅度
-df_mini_valid['sim_drop'] = 1 - df_mini_valid['cos_sim_lag1']
-df_dist_valid['sim_drop'] = 1 - df_dist_valid['cos_sim_lag1']
+SIM_COLS = [
+    "cos_sim_lag1",
+    "cos_sim_lag3",
+    "cos_sim_cumulative",
+    "cos_sim_lag1_citw",
+    "cos_sim_lag3_citw",
+    "cos_sim_cumulative_citw",
+]
 
-# 筛选条件：
-# 1. 有一定专利数量的公司（至少5个专利）
-# 2. 有连续两年数据
-# 3. 相似度下降幅度较大
 
-min_patents = 5
-
-# MiniLM模型结果
-df_mini_filtered = df_mini_valid[df_mini_valid['n_patents'] >= min_patents].copy()
-df_mini_filtered = df_mini_filtered.sort_values(['stkcd', 'p_year'])
-
-# DistilUSE模型结果  
-df_dist_filtered = df_dist_valid[df_dist_valid['n_patents'] >= min_patents].copy()
-df_dist_filtered = df_dist_filtered.sort_values(['stkcd', 'p_year'])
-
-print("\n=== MiniLM模型统计 ===")
-print(f"平均相似度: {df_mini_filtered['cos_sim_lag1'].mean():.4f}")
-print(f"相似度中位数: {df_mini_filtered['cos_sim_lag1'].median():.4f}")
-print(f"相似度标准差: {df_mini_filtered['cos_sim_lag1'].std():.4f}")
-
-print("\n=== DistilUSE模型统计 ===")
-print(f"平均相似度: {df_dist_filtered['cos_sim_lag1'].mean():.4f}")
-print(f"相似度中位数: {df_dist_filtered['cos_sim_lag1'].median():.4f}")
-print(f"相似度标准差: {df_dist_filtered['cos_sim_lag1'].std():.4f}")
-
-# 找出转型案例（相似度显著下降）
-# 定义转型：相似度低于0.5（即下降超过0.5）
-transform_threshold = 0.5
-
-print(f"\n=== 寻找转型案例（cos_sim_lag1 < {transform_threshold}）===")
-
-# MiniLM转型案例
-transform_mini = df_mini_filtered[df_mini_filtered['cos_sim_lag1'] < transform_threshold].copy()
-transform_mini = transform_mini.sort_values('cos_sim_lag1')
-print(f"\nMiniLM转型案例数: {len(transform_mini)}")
-
-# DistilUSE转型案例
-transform_dist = df_dist_filtered[df_dist_filtered['cos_sim_lag1'] < transform_threshold].copy()
-transform_dist = transform_dist.sort_values('cos_sim_lag1')
-print(f"DistilUSE转型案例数: {len(transform_dist)}")
-
-# 找出在两个模型中都显示转型的案例（交叉验证）
-transform_mini_keys = set(zip(transform_mini['stkcd'], transform_mini['p_year']))
-transform_dist_keys = set(zip(transform_dist['stkcd'], transform_dist['p_year']))
-common_transforms = transform_mini_keys & transform_dist_keys
-
-print(f"\n两个模型共同识别的转型案例数: {len(common_transforms)}")
-
-# 输出典型案例
-print("\n=== 典型案例（两个模型都显示低相似度）===")
-common_cases = []
-for stkcd, year in sorted(common_transforms)[:20]:
-    mini_row = df_mini[(df_mini['stkcd'] == stkcd) & (df_mini['p_year'] == year)].iloc[0]
-    dist_row = df_dist[(df_dist['stkcd'] == stkcd) & (df_dist['p_year'] == year)].iloc[0]
-    print(f"\n公司 {stkcd}, 年份 {year}:")
-    print(f"  专利数: {mini_row['n_patents']}")
-    print(f"  MiniLM相似度: {mini_row['cos_sim_lag1']:.4f}")
-    print(f"  DistilUSE相似度: {dist_row['cos_sim_lag1']:.4f}")
-    common_cases.append({
-        'stkcd': stkcd,
-        'year': year,
-        'n_patents': mini_row['n_patents'],
-        'minilm_sim': mini_row['cos_sim_lag1'],
-        'distiluse_sim': dist_row['cos_sim_lag1']
-    })
-
-# 寻找公司轨迹（连续多年数据，有转型特征）
-print("\n=== 寻找公司转型轨迹 ===")
-
-def find_company_trajectory(df, model_name):
-    """找出一个公司连续多年数据中有转型特征的案例"""
-    trajectories = []
-    
-    for stkcd in df['stkcd'].unique()[:100]:  # 检查前100个公司
-        company_data = df[df['stkcd'] == stkcd].sort_values('p_year')
-        if len(company_data) >= 4:  # 至少4年数据
-            sim_values = company_data['cos_sim_lag1'].tolist()
-            years = company_data['p_year'].tolist()
-            patents = company_data['n_patents'].tolist()
-            
-            # 检查是否有明显的下降后回升或持续低相似度
-            low_sim_years = [(years[i], sim_values[i], patents[i]) 
-                            for i in range(len(sim_values)) 
-                            if sim_values[i] < 0.5]
-            
-            if len(low_sim_years) >= 1:
-                trajectories.append({
-                    'stkcd': stkcd,
-                    'years': years,
-                    'similarities': sim_values,
-                    'patents': patents,
-                    'low_sim_years': low_sim_years
-                })
-    
-    return trajectories
-
-traj_mini = find_company_trajectory(df_mini_filtered, "MiniLM")
-print(f"\n找到 {len(traj_mini)} 个有转型轨迹的公司 (MiniLM)")
-
-# 选择几个典型案例
-case_stocks = []
-for traj in traj_mini[:10]:
-    stkcd = traj['stkcd']
-    print(f"\n公司 {stkcd}:")
-    print(f"  年份: {traj['years']}")
-    print(f"  相似度: {[round(s, 3) for s in traj['similarities']]}")
-    print(f"  专利数: {traj['patents']}")
-    print(f"  低相似度年份: {traj['low_sim_years']}")
-    case_stocks.append(stkcd)
-
-# 保存案例数据
-print("\n=== 保存案例数据 ===")
-
-# 保存转型案例列表
-pd.DataFrame(common_cases).to_csv("cases/transformation_cases.csv", index=False)
-
-# 保存公司完整轨迹
-for stkcd in case_stocks[:5]:
-    company_mini = df_mini[df_mini['stkcd'] == stkcd].sort_values('p_year')
-    company_dist = df_dist[df_dist['stkcd'] == stkcd].sort_values('p_year')
-    
-    # 合并两个模型的数据
-    merged = company_mini.merge(
-        company_dist[['stkcd', 'p_year', 'cos_sim_lag1']], 
-        on=['stkcd', 'p_year'], 
-        suffixes=('_minilm', '_distiluse')
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Identify representative firm-year transformation cases from similarity outputs.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    merged.to_csv(f"cases/company_{stkcd}_trajectory.csv", index=False)
-    print(f"保存公司 {stkcd} 轨迹数据")
+    parser.add_argument("--top-n", type=int, default=5, help="Number of top firm-year cases to keep.")
+    parser.add_argument(
+        "--min-event-patents",
+        type=int,
+        default=8,
+        help="Minimum patents and non-empty texts required in the event year.",
+    )
+    parser.add_argument(
+        "--min-prev-patents",
+        type=int,
+        default=3,
+        help="Minimum patents required in each of the previous two observed years.",
+    )
+    parser.add_argument(
+        "--max-lag1-mini",
+        type=float,
+        default=0.50,
+        help="Maximum allowed MiniLM lag-1 similarity in the event year.",
+    )
+    parser.add_argument(
+        "--max-lag1-dist",
+        type=float,
+        default=0.50,
+        help="Maximum allowed DistilUSE lag-1 similarity in the event year.",
+    )
+    parser.add_argument(
+        "--min-drop",
+        type=float,
+        default=0.20,
+        help="Minimum drop from the previous-two-year mean required in both models.",
+    )
+    parser.add_argument(
+        "--require-consecutive-years",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Require the previous two and next one observed rows to be consecutive calendar years.",
+    )
+    parser.add_argument(
+        "--candidate-output",
+        type=Path,
+        default=DEFAULT_CANDIDATE_OUTPUT,
+        help="Path for the full filtered candidate table.",
+    )
+    parser.add_argument(
+        "--top-output",
+        type=Path,
+        default=DEFAULT_TOP_OUTPUT,
+        help="Path for the top-ranked firm-level cases.",
+    )
+    return parser.parse_args()
 
-print("\n案例数据已保存到 cases/ 文件夹")
+
+def repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def resolve_path(path: Path) -> Path:
+    if path.is_absolute():
+        return path
+    return repo_root() / path
+
+
+def to_numeric_stkcd(value: object) -> int | None:
+    if pd.isna(value):
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith(".0"):
+        text = text[:-2]
+    stripped = text.lstrip("0")
+    normalized = stripped if stripped else "0"
+    if normalized.isdigit():
+        return int(normalized)
+    return None
+
+
+def format_stkcd(value: object) -> str:
+    numeric = to_numeric_stkcd(value)
+    if numeric is None:
+        return ""
+    return f"{numeric:06d}"
+
+
+def load_similarity(path: Path, suffix: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    required = {"stkcd", "p_year", "n_patents", "n_texts_used", *SIM_COLS}
+    missing = sorted(required.difference(df.columns))
+    if missing:
+        raise ValueError(f"{path} missing required columns: {', '.join(missing)}")
+
+    keep_cols = ["stkcd", "p_year", "n_patents", "n_texts_used", *SIM_COLS]
+    df = df[keep_cols].copy()
+    df["stkcd_num"] = df["stkcd"].map(to_numeric_stkcd)
+    df = df[df["stkcd_num"].notna()].copy()
+    df["stkcd_num"] = df["stkcd_num"].astype(int)
+    df["p_year"] = pd.to_numeric(df["p_year"], errors="coerce").astype("Int64")
+    df = df[df["p_year"].notna()].copy()
+    df["p_year"] = df["p_year"].astype(int)
+
+    rename_map = {"n_patents": f"n_patents_{suffix}", "n_texts_used": f"n_texts_used_{suffix}"}
+    rename_map.update({col: f"{col}_{suffix}" for col in SIM_COLS})
+    return df.rename(columns=rename_map)
+
+
+def load_metadata(path: Path) -> pd.DataFrame:
+    df = pd.read_excel(path)
+    required = {"stkcd", "year", "province", "city", "Ind"}
+    missing = sorted(required.difference(df.columns))
+    if missing:
+        raise ValueError(f"{path} missing required columns: {', '.join(missing)}")
+
+    df = df[["stkcd", "year", "province", "city", "Ind"]].copy()
+    df["stkcd_num"] = df["stkcd"].map(to_numeric_stkcd)
+    df = df[df["stkcd_num"].notna()].copy()
+    df["stkcd_num"] = df["stkcd_num"].astype(int)
+    df["p_year"] = pd.to_numeric(df["year"], errors="coerce").astype("Int64")
+    df = df[df["p_year"].notna()].copy()
+    df["p_year"] = df["p_year"].astype(int)
+    return df.rename(columns={"Ind": "industry_code"})[
+        ["stkcd_num", "p_year", "province", "city", "industry_code"]
+    ]
+
+
+def merge_inputs(mini_path: Path, dist_path: Path, meta_path: Path) -> pd.DataFrame:
+    mini = load_similarity(mini_path, "minilm")
+    dist = load_similarity(dist_path, "distiluse")
+    merged = mini.merge(dist, on=["stkcd", "stkcd_num", "p_year"], how="inner")
+
+    if not merged["n_patents_minilm"].equals(merged["n_patents_distiluse"]):
+        raise ValueError("n_patents mismatch between MiniLM and DistilUSE files")
+    if not merged["n_texts_used_minilm"].equals(merged["n_texts_used_distiluse"]):
+        raise ValueError("n_texts_used mismatch between MiniLM and DistilUSE files")
+
+    merged["n_patents"] = merged["n_patents_minilm"]
+    merged["n_texts_used"] = merged["n_texts_used_minilm"]
+    merged["stkcd"] = merged["stkcd_num"].map(format_stkcd)
+
+    meta = load_metadata(meta_path)
+    merged = merged.merge(meta, on=["stkcd_num", "p_year"], how="left")
+    return merged.sort_values(["stkcd_num", "p_year"]).reset_index(drop=True)
+
+
+def add_context_columns(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    group = out.groupby("stkcd_num", sort=False)
+
+    shift_cols = {
+        "p_year": "year",
+        "n_patents": "n_patents",
+        "n_texts_used": "n_texts_used",
+        "cos_sim_lag1_minilm": "cos_sim_lag1_minilm",
+        "cos_sim_lag1_distiluse": "cos_sim_lag1_distiluse",
+    }
+
+    for col, prefix in shift_cols.items():
+        for k in (1, 2):
+            out[f"prev_{prefix}_{k}"] = group[col].shift(k)
+        out[f"next_{prefix}_1"] = group[col].shift(-1)
+
+    out["year_gap_prev1"] = out["p_year"] - out["prev_year_1"]
+    out["year_gap_prev2"] = out["prev_year_1"] - out["prev_year_2"]
+    out["year_gap_next1"] = out["next_year_1"] - out["p_year"]
+
+    out["prev_lag1_complete"] = out[
+        [
+            "prev_cos_sim_lag1_minilm_1",
+            "prev_cos_sim_lag1_minilm_2",
+            "prev_cos_sim_lag1_distiluse_1",
+            "prev_cos_sim_lag1_distiluse_2",
+        ]
+    ].notna().all(axis=1)
+    out["next_lag1_complete"] = out[
+        ["next_cos_sim_lag1_minilm_1", "next_cos_sim_lag1_distiluse_1"]
+    ].notna().all(axis=1)
+
+    out["prev_mean_lag1_minilm"] = (
+        out["prev_cos_sim_lag1_minilm_1"] + out["prev_cos_sim_lag1_minilm_2"]
+    ) / 2
+    out["prev_mean_lag1_distiluse"] = (
+        out["prev_cos_sim_lag1_distiluse_1"] + out["prev_cos_sim_lag1_distiluse_2"]
+    ) / 2
+
+    out["drop_from_prev_mean_minilm"] = out["prev_mean_lag1_minilm"] - out["cos_sim_lag1_minilm"]
+    out["drop_from_prev_mean_distiluse"] = (
+        out["prev_mean_lag1_distiluse"] - out["cos_sim_lag1_distiluse"]
+    )
+
+    out["severity_score"] = (1 - out["cos_sim_lag1_minilm"]) + (1 - out["cos_sim_lag1_distiluse"])
+    out["break_score"] = (
+        out["drop_from_prev_mean_minilm"].clip(lower=0)
+        + out["drop_from_prev_mean_distiluse"].clip(lower=0)
+    ) / 2
+    out["score"] = 2 * out["severity_score"] + 1.5 * out["break_score"] + np.log1p(out["n_patents"])
+
+    rebound = (
+        (out["next_cos_sim_lag1_minilm_1"] >= 0.65)
+        & (out["next_cos_sim_lag1_distiluse_1"] >= 0.50)
+    )
+    persist_low = (
+        (out["next_cos_sim_lag1_minilm_1"] < 0.60)
+        & (out["next_cos_sim_lag1_distiluse_1"] < 0.60)
+    )
+    out["post_confirmation_type"] = np.select(
+        [rebound, persist_low],
+        ["rebound", "persistent_low"],
+        default="none",
+    )
+    return out
+
+
+def filter_candidates(df: pd.DataFrame, args: argparse.Namespace) -> pd.DataFrame:
+    mask = pd.Series(True, index=df.index)
+    mask &= df["n_patents"] >= args.min_event_patents
+    mask &= df["n_texts_used"] >= args.min_event_patents
+    mask &= df["cos_sim_lag1_minilm"] < args.max_lag1_mini
+    mask &= df["cos_sim_lag1_distiluse"] < args.max_lag1_dist
+    mask &= df["prev_lag1_complete"]
+    mask &= df["next_lag1_complete"]
+    mask &= df["prev_n_patents_1"] >= args.min_prev_patents
+    mask &= df["prev_n_patents_2"] >= args.min_prev_patents
+    mask &= df["prev_mean_lag1_minilm"] >= 0.70
+    mask &= df["prev_mean_lag1_distiluse"] >= 0.55
+    mask &= df["drop_from_prev_mean_minilm"] >= args.min_drop
+    mask &= df["drop_from_prev_mean_distiluse"] >= args.min_drop
+    mask &= df["post_confirmation_type"].isin(["rebound", "persistent_low"])
+
+    if args.require_consecutive_years:
+        mask &= df["year_gap_prev1"] == 1
+        mask &= df["year_gap_prev2"] == 1
+        mask &= df["year_gap_next1"] == 1
+
+    candidates = df[mask].copy()
+    candidates = candidates.sort_values(
+        ["score", "n_patents", "p_year", "stkcd_num"],
+        ascending=[False, False, True, True],
+    )
+    return candidates
+
+
+def firm_level_top(candidates: pd.DataFrame, top_n: int) -> pd.DataFrame:
+    deduped = candidates.sort_values(
+        ["stkcd_num", "score", "n_patents", "p_year"],
+        ascending=[True, False, False, True],
+    ).drop_duplicates(subset=["stkcd_num"], keep="first")
+    return deduped.sort_values(
+        ["score", "n_patents", "p_year", "stkcd_num"],
+        ascending=[False, False, True, True],
+    ).head(top_n)
+
+
+def build_output_table(df: pd.DataFrame) -> pd.DataFrame:
+    output = df.copy()
+    output = output.rename(columns={"p_year": "event_year"})
+
+    ordered_cols = [
+        "stkcd",
+        "event_year",
+        "n_patents",
+        "n_texts_used",
+        "province",
+        "city",
+        "industry_code",
+        "prev_year_2",
+        "prev_year_1",
+        "next_year_1",
+        "year_gap_prev2",
+        "year_gap_prev1",
+        "year_gap_next1",
+        "prev_n_patents_2",
+        "prev_n_patents_1",
+        "next_n_patents_1",
+        "prev_mean_lag1_minilm",
+        "prev_mean_lag1_distiluse",
+        "cos_sim_lag1_minilm",
+        "cos_sim_lag3_minilm",
+        "cos_sim_cumulative_minilm",
+        "cos_sim_lag1_distiluse",
+        "cos_sim_lag3_distiluse",
+        "cos_sim_cumulative_distiluse",
+        "cos_sim_lag1_citw_minilm",
+        "cos_sim_lag3_citw_minilm",
+        "cos_sim_cumulative_citw_minilm",
+        "cos_sim_lag1_citw_distiluse",
+        "cos_sim_lag3_citw_distiluse",
+        "cos_sim_cumulative_citw_distiluse",
+        "drop_from_prev_mean_minilm",
+        "drop_from_prev_mean_distiluse",
+        "severity_score",
+        "break_score",
+        "score",
+        "post_confirmation_type",
+    ]
+
+    available_cols = [col for col in ordered_cols if col in output.columns]
+    extra_cols = [col for col in output.columns if col not in available_cols]
+    return output[available_cols + extra_cols]
+
+
+def write_trajectories(full_df: pd.DataFrame, selected: pd.DataFrame) -> None:
+    cases_dir = repo_root() / "cases"
+    for stkcd_num in selected["stkcd_num"].unique():
+        stkcd = format_stkcd(stkcd_num)
+        trajectory = full_df[full_df["stkcd_num"] == stkcd_num].copy()
+        trajectory = trajectory.sort_values("p_year")
+        trajectory.to_csv(cases_dir / f"company_{stkcd}_trajectory.csv", index=False)
+
+
+def print_summary(candidates: pd.DataFrame, selected: pd.DataFrame) -> None:
+    print(f"候选案例数: {len(candidates)}")
+    print(f"候选企业数: {candidates['stkcd_num'].nunique()}")
+    print()
+    if selected.empty:
+        print("未找到满足条件的代表性案例。")
+        return
+
+    print("Top cases:")
+    preview_cols = [
+        "stkcd",
+        "p_year",
+        "n_patents",
+        "cos_sim_lag1_minilm",
+        "cos_sim_lag1_distiluse",
+        "drop_from_prev_mean_minilm",
+        "drop_from_prev_mean_distiluse",
+        "score",
+        "post_confirmation_type",
+    ]
+    print(selected[preview_cols].to_string(index=False))
+
+
+def main() -> int:
+    args = parse_args()
+    mini_path = resolve_path(DEFAULT_MINI_FILE)
+    dist_path = resolve_path(DEFAULT_DIST_FILE)
+    meta_path = resolve_path(DEFAULT_META_FILE)
+    candidate_output = resolve_path(args.candidate_output)
+    top_output = resolve_path(args.top_output)
+
+    try:
+        full_df = merge_inputs(mini_path, dist_path, meta_path)
+        full_df = add_context_columns(full_df)
+        candidates = filter_candidates(full_df, args)
+        selected = firm_level_top(candidates, args.top_n)
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    candidate_output.parent.mkdir(parents=True, exist_ok=True)
+    top_output.parent.mkdir(parents=True, exist_ok=True)
+
+    build_output_table(candidates).to_csv(candidate_output, index=False)
+    build_output_table(selected).to_csv(top_output, index=False)
+    write_trajectories(full_df, selected)
+    print_summary(candidates, selected)
+    print()
+    print(f"候选案例已写入: {candidate_output}")
+    print(f"Top案例已写入: {top_output}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

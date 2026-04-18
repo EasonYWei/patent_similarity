@@ -115,12 +115,13 @@ City-level columns (for city-level analysis):
 
 ### Environment Setup
 
-```bash
-# Create virtual environment (recommended)
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+Project commands below assume the `conda` environment `patent_sim` is active.
 
-# Install dependencies
+```bash
+# Activate the project environment
+conda activate patent_sim
+
+# Refresh dependencies if needed
 pip install -r requirements.txt
 ```
 
@@ -497,6 +498,11 @@ CITATION_COLUMN = "p_cite"       # Citation count
 | Stata preprocessing fails | Ensure `patents.dta` exists in `data/` directory |
 | Missing city columns | Re-run `pre.do` to include city fields; check raw data has 市/市代码 columns |
 | City similarity empty output | Verify `city_embeddings.py` ran successfully and output files exist |
+
+## TODO
+
+- Add IPC-based patent similarity calculation.
+- Check `city_year` and industry-level calculation.
 
 ## References
 
