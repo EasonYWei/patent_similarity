@@ -1,7 +1,10 @@
 # 专利相似度计算项目依赖
 
 ## 数据处理
-pandas>=2.0.0
+pandas>=2.0.0  # Stata .dta compatibility boundary
+polars>=0.20.0
+fastexcel>=0.10.0
+pyarrow>=14.0.0
 numpy>=1.24.0
 openpyxl>=3.1.0
 
