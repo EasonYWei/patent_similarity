@@ -186,7 +186,7 @@ Rscript minimal_similarity_demo.R
 
 ## Comparing with Main Pipeline / 与主流程对比
 
-The main pipeline (`scripts/patents_embeddings.py`) processes all ~2.3M patents and outputs:
+The main pipeline now computes patent-level vectors with `scripts/02_embeddings/compute_patent_level_embeddings.py`, then aggregates them with `scripts/03_aggregation/aggregate_firm_year_embeddings.py`. It processes all ~2.3M patents and outputs:
 - `output/stkcd_year_{model}_embeddings.csv` (simple mean)
 - `output/stkcd_year_citweighted_{model}_embeddings.csv` (citation-weighted)
 
@@ -209,8 +209,8 @@ print(sample_from_main[["stkcd_year", "n_patents", "emb_0", "emb_1", "emb_2"]])
 **Sample file not found**
 - Run `create_sample_embeddings.R` first to extract from main output
 
-**ImportError: No module named 'patents_embeddings'**
-- Make sure you're running from `sample/scripts/` directory
+**ImportError: No module named 'patent_similarity'**
+- Make sure you're running from `sample/scripts/` inside the project checkout
 
 **Model not found**
 - Check that models are in `../models/` (relative to project root)

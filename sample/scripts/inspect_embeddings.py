@@ -33,27 +33,33 @@ SAMPLE_DIR = SCRIPT_DIR.parent
 PROJECT_ROOT = SAMPLE_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
-# Now we can import from the main script
+# Now we can import from the shared pipeline package.
 try:
-    from patents_embeddings import (
-        SBertEmbedder,
-        aggregate_chunk,
-        build_text_field,
-        coerce_citations,
-        divide_rows,
-        finalize_chunk_aggregates,
-        write_embedding_outputs,
-        STKCD_COLUMN,
-        YEAR_COLUMN,
-        KEY_COLUMN,
-        TEXT_COLUMNS,
-        CITATION_COLUMN,
-        EMBEDDING_OUTPUT_COLUMNS,
-    )
+    from patent_similarity.aggregation import divide_rows
+    from patent_similarity.config import CITATION_COLUMN, STKCD_COLUMN, TEXT_COLUMNS, YEAR_COLUMN
+    from patent_similarity.embedding_model import SBertEmbedder
 except ImportError as e:
-    print(f"Error importing from main script: {e}")
-    print("Make sure patents_embeddings.py exists in the main scripts folder")
+    print(f"Error importing from shared pipeline package: {e}")
+    print("Make sure you are running from sample/scripts inside the project checkout")
     sys.exit(1)
+
+
+KEY_COLUMN = "stkcd_year"
+
+
+def build_text_field(df: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
+    """Build normalized combined text and an empty-text flag for sample inspection."""
+    parts: list[pd.Series] = []
+    for column in TEXT_COLUMNS:
+        if column in df.columns:
+            parts.append(df[column].fillna("").astype("string"))
+        else:
+            parts.append(pd.Series("", index=df.index, dtype="string"))
+    text = parts[0]
+    for part in parts[1:]:
+        text = text.str.cat(part, sep=" ")
+    text = text.fillna("").str.replace(r"\s+", " ", regex=True).str.strip()
+    return text, text.str.len().fillna(0).eq(0)
 
 
 logging.basicConfig(

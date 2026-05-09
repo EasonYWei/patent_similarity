@@ -1,513 +1,218 @@
-# Patent Similarity Calculation Project / 专利相似度计算项目
+# Remote-First Guide for `patent_similarity_new`
+
+## Default Working Rule
+
+- Unless the user explicitly asks for local-only work, do the work on the remote host:
+  ```bash
+  ssh eason
+  cd ~/patent_similarity_new
+  ```
+- Treat `/home/ubuntu/patent_similarity_new` as the source of truth. This local folder is a wrapper for notes, synced outputs, and agent instructions.
+- The remote host does not appear to have `rg`; prefer `find`, `grep`, `sed`, and `ls` there.
+- In non-interactive SSH shells, activate conda explicitly before running project commands:
+  ```bash
+  source /home/ubuntu/miniconda3/etc/profile.d/conda.sh
+  conda activate patent_sim
+  ```
 
 ## Project Overview
 
-This project computes semantic embeddings for patent data using Sentence-BERT (SBERT) models and aggregates them by firm-year and city-year for similarity analysis. It processes Chinese (and potentially multilingual) patent text to generate vector representations suitable for measuring patent similarity, innovation analysis, and research in technological change.
+This project computes semantic embeddings for patent title and abstract text using multilingual Sentence-BERT models. It aggregates patent embeddings at firm-year and city-year levels, then computes lag-1, lag-3, and cumulative cosine similarities for innovation and technology-change analysis.
 
-The pipeline reads patent data (titles and abstracts), computes dense vector embeddings using pre-trained multilingual SBERT models, and aggregates these embeddings at both firm-year and city-year levels with both simple mean and citation-weighted approaches. Additionally, the project includes tools for identifying and analyzing firm technology transformation cases.
+The active pipeline is Python-first and organized into numbered folders that sort in execution order: `01_preprocess`, `02_embeddings`, `03_aggregation`, `04_similarity`, and `05_postprocess`. Historical R and Stata scripts are kept only under `scripts/archive/` for reference.
 
-## Technology Stack
+## Stack And Models
 
-- **Language**: Python 3.x, R, Stata
-- **Deep Learning**: PyTorch >= 2.0.0, Transformers >= 4.30.0
-- **Embedding Models**: sentence-transformers >= 2.2.0 (SBERT)
-- **Data Processing**: pandas >= 2.0.0, numpy >= 1.24.0
-- **Progress Tracking**: tqdm >= 4.65.0
-- **Input Data Format**: Stata (.dta) files
+- Python 3 with `pandas`, `polars`, `numpy`, `torch`, `transformers`, `sentence-transformers`, and `tqdm`.
+- R scripts remain in `sample/` and `cases/` workflows where documented; old production R similarity scripts are archived.
+- Input data is stored mainly as Stata `.dta` files, with optional Parquet range files.
+- Local model directories on the remote host:
+  - `models/paraphrase-multilingual-MiniLM-L12-v2` -> short name `minilm`, 384 dimensions.
+  - `models/distiluse-base-multilingual-cased-v2` -> short name `distiluse`, 512 dimensions.
 
-## Project Structure
+## Remote Repo Layout
 
-```
-.
-├── scripts/                       # Main pipeline scripts
-│   ├── patents_embeddings.py      # Main embedding pipeline (Python)
-│   ├── patents_similarity.R       # Similarity calculation (R)
-│   ├── city_embeddings.py         # City-level embedding pipeline (Python)
-│   ├── city_similarity.R          # City-level similarity calculation (R)
-│   └── pre.do                     # Stata data preprocessing script
-├── sample/                        # Sample data for testing/debugging
-│   ├── data/                      # Sample datasets
-│   │   ├── sample_patents_raw.csv         # Raw patent texts (~5K patents)
-│   │   ├── sample_patents_raw.pkl         # Same data in pickle format
-│   │   ├── sample_minilm_embeddings.csv   # Firm-year embeddings sample
-│   │   ├── sample_citweighted_minilm_embeddings.csv  # Citation-weighted
-│   │   └── sample_firm_year_summary.csv   # Summary statistics
-│   ├── scripts/                   # Sample inspection scripts
-│   │   ├── extract_sample_patents.py      # Extract from main data
-│   │   ├── inspect_embeddings.py          # Detailed inspection (Python)
-│   │   ├── create_sample_embeddings.R     # Create sample embeddings
-│   │   ├── calculate_sample_similarity.R  # Sample similarity calc
-│   │   ├── minimal_similarity_demo.R      # Step-by-step demo
-│   │   └── ps_self.R                      # Patent-level self-similarity
-│   ├── output/                    # Sample outputs (generated)
-│   └── README.md                  # Sample folder documentation
-├── cases/                         # Technology transformation case analysis
-│   ├── README.md                  # Case study documentation (Chinese)
-│   ├── transformation_cases.csv   # 247 identified transformation cases
-│   ├── find_transformation_cases.py     # Identify transformation cases
-│   ├── extract_patent_texts.py    # Extract patent texts for analysis
-│   ├── batch_extract.py           # Batch extraction tool
-│   ├── preview_patents.py         # Preview data structure
-│   ├── company_2_trajectory.csv   # Case: Company 2 trajectory
-│   ├── company_12_trajectory.csv  # Case: Company 12 trajectory
-│   ├── company_423_trajectory.csv # Case: Company 423 trajectory
-│   ├── company_518_trajectory.csv # Case: Company 518 trajectory
-│   ├── company_538_trajectory.csv # Case: Company 538 trajectory
-│   └── details/                   # Detailed patent texts for cases
-├── models/                        # Pre-trained SBERT models (local storage)
-│   ├── paraphrase-multilingual-MiniLM-L12-v2/  # 384-dim embeddings
-│   └── distiluse-base-multilingual-cased-v2/   # 512-dim embeddings
-├── data/                          # Input data directory
-│   ├── patents.dta               # Raw patent data (~27GB)
-│   └── patents_cleaned.dta       # Cleaned input data (~2GB)
-├── output/                        # Generated outputs (created at runtime)
-│   ├── stkcd_year_{model}_embeddings.csv              # Firm-year simple mean embeddings
-│   ├── stkcd_year_citweighted_{model}_embeddings.csv  # Firm-year citation-weighted embeddings
-│   ├── stkcd_year_similarity_{model}.csv              # Firm-year similarity results
-│   ├── city_year_{model}_embeddings.csv               # City-year simple mean embeddings
-│   ├── city_year_citweighted_{model}_embeddings.csv   # City-year citation-weighted embeddings
-│   ├── city_year_similarity_{model}.csv               # City-year similarity results
-│   ├── patent_level_{model}_meta.csv                  # Patent-level metadata (optional)
-│   └── patent_level_{model}_embeddings.npy            # Patent-level embeddings (optional)
-├── requirements.txt               # Python dependencies
-└── presentation.tex               # LaTeX presentation
+- `README.md`: active quick start and project description.
+- `AGENTS.md`: this remote-first operating guide.
+- `requirements.txt`: Python dependency list.
+- `scripts/`: active Python pipeline folders.
+  - `01_preprocess/`: raw-data preparation, city enrichment, and Stata-to-Parquet chunking.
+  - `02_embeddings/`: patent-level SBERT model inference only.
+  - `03_aggregation/`: firm-year and city-year embedding aggregation from patent-level vectors.
+  - `04_similarity/`: firm, city, industry-peer, and merged-panel similarity calculations.
+  - `05_postprocess/`: comparison summaries, correlations, and descriptive outputs.
+  - `archive/r/`: historical pre-refactor production R similarity scripts.
+  - `archive/stata/`: historical Stata preprocessing script.
+- `cases/`: technology-transformation case identification and patent-text extraction.
+- `sample/`: small inspection and debugging workflow.
+- `data/`: large `.dta` inputs and mapping files.
+- `models/`: local SBERT model directories.
+- `output/`: generated embeddings, similarities, merged panels, and summaries.
 
-Note: {model} is the model short name (e.g., "minilm" for paraphrase-multilingual-MiniLM-L12-v2,
-"distiluse" for distiluse-base-multilingual-cased-v2).
-```
+## Data Schema And Required Inputs
 
-## Data Schema
+Core remote files:
 
-### Input Data (patents_cleaned.dta)
+- `data/patents.dta`: raw source data.
+- `data/patents_cleaned.dta`: cleaned main input.
+- `data/patents_cleaned_with_city.dta`: city-enriched input for city and merge workflows.
+- `data/stkcd_info.xlsx`: firm-year industry mapping.
 
-Required columns:
-- `stkcd` (string): Company stock code / 股票代码
-- `p_year` (integer): Patent year / 年份
-- `p_tt` (string): Patent title / 标题
-- `p_abs` (string): Patent abstract / 摘要
+Minimum columns for firm-year embeddings:
 
-Optional columns:
-- `p_id` (string): Patent ID / newipzlid
-- `p_cite` (numeric): Citation count for weighting / 被引证次数
-- `p_date` (date): Application date / 申请日
-- `p_type` (string): Patent type / 专利类型
-- `p_ipc` (string): IPC classification / IPC
+- `stkcd`: company stock code.
+- `p_year`: patent year.
+- `p_tt`: patent title.
+- `p_abs`: patent abstract.
 
-City-level columns (for city-level analysis):
-- `city` (string): City name / 市
-- `city_code` (string): City code / 市代码
-- `province` (string): Province name / 省
-- `province_code` (string): Province code / 省代码
+City workflow columns:
 
-### Output Data
+- `city`: city name.
+- `city_code`: city code.
+- `province`: province name.
+- `province_code`: province code.
 
-**Firm-Year Embeddings** (`stkcd_year_{model}_embeddings.csv`):
-- `stkcd`: Company stock code
-- `p_year`: Year
-- `stkcd_year`: Composite key (stkcd_p_year)
-- `n_patents`: Number of patents in group
-- `n_texts_used`: Number of patents with non-empty text
-- `total_citations`: Sum of citations
-- `mean_citations`: Average citations per patent
-- `emb_0` to `emb_N`: Embedding vector components (384 or 512 dimensions)
+Common optional columns used downstream:
 
-## Build and Run Commands
+- `p_id`: patent ID, often from `newipzlid`.
+- `p_cite`: citation count used for weighting.
+- `p_date`: application date.
+- `p_type`: patent type.
+- `p_ipc`: IPC classification.
 
-### Environment Setup
+Each numbered stage keeps its own `tools/` helpers. Do not reintroduce a shared `patent_similarity/` package or conda auto-reexec helper unless explicitly requested.
 
-Project commands below assume the `conda` environment `patent_sim` is active.
+## Main Commands
+
+Always start on the remote host unless local-only work was explicitly requested:
 
 ```bash
-# Activate the project environment
+ssh eason
+cd ~/patent_similarity_new
+source /home/ubuntu/miniconda3/etc/profile.d/conda.sh
 conda activate patent_sim
+```
 
-# Refresh dependencies if needed
+Refresh Python dependencies only when needed:
+
+```bash
 pip install -r requirements.txt
 ```
 
-### Data Preprocessing (Stata)
-
-```stata
-# Run the Stata preprocessing script to clean raw data
-do scripts/pre.do
-
-# This will:
-# 1. Load patents.dta and select required columns
-# 2. Rename Chinese columns to English abbreviations
-# 3. Filter by patent type (invention applications, granted inventions, utility models)
-# 4. Filter by stock code prefix (0, 3, or 6)
-# 5. Handle missing citations (fill with 0)
-# 6. Save to data/patents_cleaned.dta
-```
-
-### Running the Pipeline
+Build city-enriched cleaned data when city columns are needed:
 
 ```bash
-# Basic usage (uses default settings)
-python scripts/patents_embeddings.py
-
-# With specific model and options
-python scripts/patents_embeddings.py \
-    --input data/patents_cleaned.dta \
-    --model-dir models \
-    --model-name paraphrase-multilingual-MiniLM-L12-v2 \
-    --output-dir output \
-    --batch-size 256 \
-    --save-npy \
-    --verbose
-
-# Use GPU if available
-python scripts/patents_embeddings.py --device cuda
-
-# Multi-GPU processing
-python scripts/patents_embeddings.py --multi-gpu
-
-# Include empty text rows in aggregation (default excludes them)
-python scripts/patents_embeddings.py --include-empty-in-agg
-
-# Disable patent-level output (enabled by default)
-python scripts/patents_embeddings.py --no-save-patent-level
+python scripts/01_preprocess/build_city_enriched_patents.py \
+  --input data/patents.dta \
+  --output data/patents_cleaned_with_city.dta \
+  --chunk-size 100000
 ```
 
-### Command-Line Arguments
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--input` | `data/patents_cleaned.dta` | Input Stata file path |
-| `--model-dir` | `models` | Directory containing SBERT models |
-| `--model-name` | `paraphrase-multilingual-MiniLM-L12-v2` | Model subdirectory name |
-| `--output-dir` | `output` | Output directory |
-| `--batch-size` | 256 | Batch size for encoding |
-| `--device` | auto (cuda if available) | Compute device (cuda/cpu) |
-| `--multi-gpu` | False | Enable multi-GPU encoding |
-| `--save-npy` | False | Also save .npy format outputs |
-| `--save-patent-level` | False | Save patent-level embeddings |
-| `--include-empty-in-agg` | False | Include empty texts in aggregation |
-| `--verbose` | False | Enable debug logging |
-
-### Similarity Calculation (R)
+Generate patent-level embeddings, aggregate them, and calculate similarities:
 
 ```bash
-# Run similarity calculation on embeddings
-Rscript scripts/patents_similarity.R
+python scripts/02_embeddings/compute_patent_level_embeddings.py --model minilm
+python scripts/02_embeddings/compute_patent_level_embeddings.py --model distiluse
+
+python scripts/03_aggregation/aggregate_firm_year_embeddings.py --model minilm
+python scripts/03_aggregation/aggregate_firm_year_embeddings.py --model distiluse
+python scripts/03_aggregation/aggregate_city_year_embeddings.py --model minilm
+python scripts/03_aggregation/aggregate_city_year_embeddings.py --model distiluse
+
+python scripts/04_similarity/compute_firm_year_similarity.py --model minilm
+python scripts/04_similarity/compute_firm_year_similarity.py --model distiluse
+python scripts/04_similarity/compute_city_year_similarity.py --model minilm
+python scripts/04_similarity/compute_city_year_similarity.py --model distiluse
 ```
 
-### City-Level Analysis
-
-**City embeddings (Python):**
-```bash
-python scripts/city_embeddings.py \
-    --input data/patents_cleaned.dta \
-    --model-dir models \
-    --model-name paraphrase-multilingual-MiniLM-L12-v2 \
-    --output-dir output \
-    --batch-size 256
-```
-
-**City similarity calculation (R):**
-```bash
-# Edit scripts/city_similarity.R to set model_suffix <- "_minilm" or "_distiluse"
-Rscript scripts/city_similarity.R
-```
-
-**Command-Line Arguments for `city_embeddings.py`:**
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--input` | `data/patents_cleaned.dta` | Input Stata file path (must include city columns) |
-| `--model-dir` | `models` | Directory containing SBERT models |
-| `--model-name` | `paraphrase-multilingual-MiniLM-L12-v2` | Model subdirectory name |
-| `--output-dir` | `output` | Output directory |
-| `--batch-size` | 256 | Batch size for encoding |
-| `--device` | auto (cuda if available) | Compute device (cuda/cpu) |
-| `--multi-gpu` | False | Enable multi-GPU encoding |
-| `--save-npy` | False | Also save .npy format outputs |
-| `--include-empty-in-agg` | False | Include empty texts in aggregation |
-| `--verbose` | False | Enable debug logging |
-
-### Patent-Level Self-Similarity (Sample)
+Run industry, merged panel, and comparison workflows:
 
 ```bash
-cd sample/scripts
-Rscript ps_self.R
+python scripts/04_similarity/compute_industry_peer_similarity.py --models minilm,distiluse
+python scripts/04_similarity/build_similarity_panels.py --data-path ./data/patents_cleaned_with_city.dta --models minilm,distiluse
+python scripts/05_postprocess/summarize_similarity_outputs.py --models minilm,distiluse
 ```
 
-This calculates for each patent:
-- `sim_max`: Maximum cosine similarity with previous patents
-- `sim_max_d`: Days since the most similar patent
-- `sim_ave`: Average cosine similarity with all previous patents
+## Active CLI Notes
 
-## Code Organization
+Patent-level embedding script options:
 
-### Main Script: `scripts/patents_embeddings.py`
+- `--input`: input `.dta` or `.parquet` file; defaults to `data/patents_cleaned_with_city.dta`.
+- `--model`: model short name, usually `minilm` or `distiluse`.
+- `--model-name`: full local model directory name.
+- `--model-dir`: directory containing local SBERT models.
+- `--output-dir`: output directory.
+- `--batch-size`: embedding batch size; auto-selected when omitted.
+- `--device`: compute device, usually CUDA if available.
+- `--multi-gpu`: use SentenceTransformers multi-process multi-GPU path.
+- `--row-chunk-size`: embed patent rows in chunks.
+- `--embed-backend`: `overflow` by default; `legacy` remains available for comparison.
+- `--max-seq-length`, `--fp16`, `--tf32`, `--max-chunks`, `--verbose`.
 
-The script is organized into these functional components:
+Aggregation scripts consume `output/patent_level_{model}_meta.csv` and `output/patent_level_{model}_embeddings.npy`, then produce the existing firm-year and city-year embedding filenames. They support `--patent-meta`, `--patent-embeddings`, `--row-chunk-size`, `--include-empty-in-agg`, and `--save-npy`.
 
-1. **Data Loading** (`load_single_file`, `load_and_prepare_data`):
-   - Reads Stata (.dta) files using pandas
-   - Validates required columns
-   - Normalizes legacy column names
-   - Builds combined text fields (title + abstract)
-   - Creates composite `stkcd_year` keys
+## Expected Outputs
 
-2. **Embedding Model** (`SBertEmbedder` class):
-   - Loads SBERT models from local paths
-   - Handles device selection (CPU/CUDA/Multi-GPU)
-   - Implements text chunking for long documents exceeding token limits
-   - Provides fallback encoding for oversized texts
-   - Uses sentence-level splitting with regex: `(?<=[。；;!?！？。!?.])\s+|\n+`
+Use `{model}` as `minilm` or `distiluse`.
 
-3. **Aggregation Logic** (`aggregate_chunk`, `finalize_chunk_aggregates`):
-   - Groups embeddings by `stkcd_year`
-   - Computes simple mean embeddings
-   - Computes citation-weighted embeddings
-   - Handles empty text exclusion
+Patent-level embeddings:
 
-4. **Output Writing** (`save_embeddings_bundle`, `write_embedding_outputs`):
-   - Writes CSV files with metadata and embedding vectors
-   - Optionally saves NPY format for efficient array storage
+- `output/patent_level_{model}_meta.csv`
+- `output/patent_level_{model}_embeddings.npy`
 
-### Data Preprocessing: `scripts/pre.do`
+Firm-year embeddings and similarities:
 
-Stata script for cleaning raw patent data:
-1. Loads `patents.dta` with selected columns (including city fields: 市, 市代码, 省, 省代码)
-2. Renames Chinese variable names to English abbreviations
-3. Filters by patent type (发明申请, 发明授权, 实用新型)
-4. Filters by stock code prefix (0, 3, or 6)
-5. Fills missing citation counts with 0
-6. Reports duplicates and saves to `patents_cleaned.dta`
+- `output/stkcd_year_{model}_embeddings.csv`
+- `output/stkcd_year_citweighted_{model}_embeddings.csv`
+- `output/stkcd_year_similarity_{model}.csv`
+- `output/stkcd_year_similarity_citweighted_{model}.csv`
+- `output/stkcd_year_similarity_merged_{model}.csv`
 
-**Note**: The script now preserves city fields for city-level analysis. If you have an existing `patents_cleaned.dta` without city fields, re-run the pre.do script in Stata:
-```stata
-do scripts/pre.do
-```
+City-year embeddings and similarities:
 
-### Model Configuration
+- `output/city_year_{model}_embeddings.csv`
+- `output/city_year_citweighted_{model}_embeddings.csv`
+- `output/city_year_similarity_{model}.csv`
+- `output/city_year_similarity_citweighted_{model}.csv`
+- `output/city_year_similarity_merged_{model}.csv`
 
-Two pre-trained models are included locally:
+Downstream merged analysis:
 
-1. **paraphrase-multilingual-MiniLM-L12-v2** (default):
-   - Architecture: MiniLM-L12 (distilled BERT)
-   - Output dimension: 384
-   - Max sequence length: 128 tokens
-   - Supports 50+ languages including Chinese
-
-2. **distiluse-base-multilingual-cased-v2**:
-   - Architecture: DistilBERT + Dense layer
-   - Output dimension: 512
-   - Max sequence length: 128 tokens
-   - Dense projection: 768 → 512 with Tanh activation
-
-## City-Level Analysis / 城市层面分析
-
-The project supports city-level patent similarity analysis in addition to firm-level analysis. This allows measuring technological similarity and transformation at the geographic (city) level.
-
-### Scripts
-
-- `scripts/city_embeddings.py`: Computes city-year level embeddings
-- `scripts/city_similarity.R`: Calculates city-level similarity metrics
-
-### Data Requirements
-
-The `pre.do` script now includes city fields from the raw data:
-- `city` / `city_code`: City name and code (市 / 市代码)
-- `province` / `province_code`: Province name and code (省 / 省代码)
-
-### Usage
-
-**Step 1: Generate city-year embeddings**
-```bash
-# MiniLM model
-python scripts/city_embeddings.py \
-    --input data/patents_cleaned.dta \
-    --model-dir models \
-    --model-name paraphrase-multilingual-MiniLM-L12-v2 \
-    --output-dir output \
-    --batch-size 256
-
-# DistilUSE model
-python scripts/city_embeddings.py \
-    --input data/patents_cleaned.dta \
-    --model-dir models \
-    --model-name distiluse-base-multilingual-cased-v2 \
-    --output-dir output \
-    --batch-size 256
-```
-
-**Step 2: Calculate city-level similarities**
-```bash
-# Edit scripts/city_similarity.R to set model_suffix <- "_minilm" or "_distiluse"
-Rscript scripts/city_similarity.R
-```
-
-### Output Files
-
-City-level outputs follow the same naming convention as firm-level outputs:
-- `city_year_{model}_embeddings.csv`: City-year simple mean embeddings
-- `city_year_citweighted_{model}_embeddings.csv`: City-year citation-weighted embeddings
-- `city_year_similarity_{model}.csv`: City-level similarity results (lag-1, lag-3, cumulative)
-- `city_year_similarity_citweighted_{model}.csv`: Citation-weighted similarity results
-- `city_year_similarity_merged_{model}.csv`: Combined simple and weighted results
-
-### Output Schema
-
-**City-Year Embeddings** (`city_year_{model}_embeddings.csv`):
-- `city`: City name
-- `city_code`: City code (unique identifier)
-- `province`: Province name
-- `p_year`: Year
-- `city_year`: Composite key (city_code_p_year)
-- `n_patents`: Number of patents in city-year group
-- `n_texts_used`: Number of patents with non-empty text
-- `total_citations`: Sum of citations
-- `mean_citations`: Average citations per patent
-- `emb_0` to `emb_N`: Embedding vector components
-
-**City Similarity Results** (`city_year_similarity_{model}.csv`):
-- `city_code`: City code
-- `city`: City name
-- `p_year`: Year
-- `n_patents`: Number of patents
-- `cos_sim_lag1`: Similarity with previous year
-- `cos_sim_lag3`: Similarity with previous 3-year average
-- `cos_sim_cumulative`: Similarity with all previous years
-- `cos_sim_lag1_citw`, `cos_sim_lag3_citw`, `cos_sim_cumulative_citw`: Citation-weighted versions
-
-## Cases: Technology Transformation Analysis
-
-The `cases/` directory contains tools for identifying and analyzing firm technology transformation cases based on patent similarity trajectories.
-
-### Key Files
-
-- `find_transformation_cases.py`: Identifies firms with significant similarity drops (cos_sim_lag1 < 0.5)
-- `extract_patent_texts.py`: Extracts patent texts for specific firms and years
-- `batch_extract.py`: Batch extraction for multiple firms
-- `preview_patents.py`: Preview data structure and sample records
-
-### Usage
-
-```bash
-# Find transformation cases
-cd cases
-python find_transformation_cases.py
-
-# Extract patent texts for a specific firm and year
-python extract_patent_texts.py --stkcd 000002 --year 2010 --output company2_2010.csv
-
-# Batch extract for multiple firms
-python batch_extract.py --companies 000002,000012,000518 --year 2010
-
-# Preview data
-python preview_patents.py -n 10
-```
-
-### Transformation Identification Criteria
-
-- **Threshold**: cos_sim_lag1 < 0.5 (similarity below 50%)
-- **Cross-validation**: Both models (MiniLM and DistilUSE) identify low similarity
-- **Sample size**: At least 5 patents in the year (ensures statistical reliability)
-
-## Sample: Inspection and Debugging
-
-The `sample/` directory provides sample data and scripts for manually inspecting and understanding the patent embeddings and aggregation pipeline.
-
-### Workflow
-
-```bash
-cd sample/scripts
-
-# 1. Extract sample from main data
-python extract_sample_patents.py
-
-# 2. Create sample embeddings from main output
-Rscript create_sample_embeddings.R
-
-# 3. Calculate similarities
-Rscript calculate_sample_similarity.R
-
-# 4. Run patent-level self-similarity analysis
-Rscript ps_self.R
-```
-
-### Sample Companies
-
-| stkcd  | Patents | Years | Type |
-|--------|---------|-------|------|
-| 600808 | 4,820   | 40 (1985-2024) | Many years - for testing lag-3 and cumulative |
-| 000002 | 110     | 10 (2002-2014) | Medium years - normal case |
-| 000061 | 6       | 3 (2009-2012)  | Few years - lag-3 should be NA |
-| 000004 | 2       | 1 (2002)       | Single year - all similarities NA |
+- `output/industry_peer_similarity_{model}.csv`
+- `output/industry_peer_similarity_citweighted_{model}.csv`
+- `output/industry_peer_similarity_merged_{model}.csv`
+- `output/merged_similarity_by_firm_{model}.csv`
+- `output/merged_similarity_by_city_{model}.csv`
+- `output/similarity_by_industry_{model}.csv`
+- `output/similarity_by_city_summary_{model}.csv`
+- `output/similarity_comparison_{model}.csv`
+- `output/similarity_correlation_{model}.csv`
 
 ## Development Conventions
 
-### Code Style
+- Use Python type annotations where practical.
+- Keep module and function docstrings in the existing style.
+- Use `snake_case` for functions and variables, `PascalCase` for classes, and `UPPER_CASE` for module-level constants.
+- Use `pathlib.Path` for filesystem paths.
+- Prefer structured data handling through Polars, pandas, data.table, or Stata rather than ad hoc text parsing.
+- Keep generated outputs in `output/`, sample outputs in `sample/output/`, and case artifacts under `cases/`.
+- Do not reintroduce top-level compatibility wrappers for removed scripts unless explicitly requested.
+- Ignored generated files such as `__pycache__/` and `.pyc` files should not be left in the scripts tree after cleanup work.
 
-- **Type hints**: Extensive use of Python type annotations (`typing` module)
-- **Docstrings**: Module and function docstrings follow Google style
-- **Naming**: snake_case for functions/variables, PascalCase for classes
-- **Constants**: UPPER_CASE for module-level constants
-- **Path handling**: Uses `pathlib.Path` for filesystem operations
+## Performance And Troubleshooting
 
-### Key Constants
-
-**Firm-level constants** (`patents_embeddings.py`):
-```python
-STKCD_COLUMN = "stkcd"           # Company identifier
-YEAR_COLUMN = "p_year"           # Year column
-KEY_COLUMN = "stkcd_year"        # Composite aggregation key
-TEXT_COLUMNS = ("p_tt", "p_abs") # Title and abstract
-CITATION_COLUMN = "p_cite"       # Citation count
-```
-
-**City-level constants** (`city_embeddings.py`):
-```python
-CITY_COLUMN = "city"             # City name
-CITY_CODE_COLUMN = "city_code"   # City code (unique identifier)
-PROVINCE_COLUMN = "province"     # Province name
-PROVINCE_CODE_COLUMN = "province_code"  # Province code
-CITY_KEY_COLUMN = "city_year"    # Composite aggregation key
-YEAR_COLUMN = "p_year"           # Year column
-TEXT_COLUMNS = ("p_tt", "p_abs") # Title and abstract
-CITATION_COLUMN = "p_cite"       # Citation count
-```
-
-## Performance Considerations
-
-- **GPU Recommended**: Embedding computation is significantly faster on CUDA
-- **Batch Size**: Default 256; increase if GPU memory permits
-- **Multi-GPU**: Use `--multi-gpu` for systems with multiple CUDA devices
-- **Memory**: Full dataset (~2GB Stata) requires substantial RAM; the script filters columns early
-- **Chunking**: Long patents are automatically split at sentence boundaries, then token boundaries if needed
-
-## Security Considerations
-
-- Input file paths are not sanitized; ensure trusted input only
-- No network operations; all models are loaded from local filesystem
-- No sensitive credential handling
-- Output files are written with default permissions
-
-## Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| Out of memory | Reduce `--batch-size`, or use CPU with `--device cpu` |
-| Model not found | Verify model directory exists: `models/{model_name}` |
-| Missing columns | Check input file has required columns: stkcd, p_year, p_tt, p_abs |
-| CUDA errors | Update PyTorch to match CUDA version; or use CPU mode |
-| Slow processing | Enable GPU; increase batch size; consider `--multi-gpu` |
-| Stata preprocessing fails | Ensure `patents.dta` exists in `data/` directory |
-| Missing city columns | Re-run `pre.do` to include city fields; check raw data has 市/市代码 columns |
-| City similarity empty output | Verify `city_embeddings.py` ran successfully and output files exist |
-
-## TODO
-
-- Add IPC-based patent similarity calculation.
-- Check `city_year` and industry-level calculation.
+- GPU is strongly recommended for full embedding runs.
+- Default batch size is auto-detected; tune `--batch-size` if memory or throughput is poor.
+- Use `--row-chunk-size` to reduce peak RAM/VRAM on large data.
+- Use `--multi-gpu` only when multiple CUDA devices are available and the multi-GPU path is desired.
+- `--fp16` and `--tf32` can speed up CUDA runs but may introduce small numeric drift.
+- Full cleaned data is large; check `df -h ~/patent_similarity_new` before expensive regeneration.
+- If city similarity output is empty, confirm `scripts/02_embeddings/compute_patent_level_embeddings.py` ran on an input with city columns, then confirm `scripts/03_aggregation/aggregate_city_year_embeddings.py` ran for the selected model.
+- If a model is missing, verify `models/{model_name}` exists on the remote host.
 
 ## References
 
-- Sentence-BERT paper: [Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks](https://arxiv.org/abs/1908.10084)
+- Sentence-BERT paper: https://arxiv.org/abs/1908.10084
 - SBERT documentation: https://www.sbert.net/
-- Models from Hugging Face:
-  - https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
-  - https://huggingface.co/sentence-transformers/distiluse-base-multilingual-cased-v2
+- Model: https://huggingface.co/sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+- Model: https://huggingface.co/sentence-transformers/distiluse-base-multilingual-cased-v2

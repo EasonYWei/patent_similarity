@@ -26,29 +26,30 @@ ls data models
 df -h .
 ```
 
-Run a reproducible full workflow for both supported models:
+Run a reproducible full workflow for both supported models. The folder names are numbered so they sort in pipeline order:
 
 ```bash
-# Firm-year embeddings and similarities
-python scripts/compute_firm_year_embeddings.py --model minilm
-python scripts/compute_firm_year_embeddings.py --model distiluse
-python scripts/compute_firm_year_similarity.py --model minilm
-python scripts/compute_firm_year_similarity.py --model distiluse
+# Patent-level model inference
+python scripts/02_embeddings/compute_patent_level_embeddings.py --model minilm
+python scripts/02_embeddings/compute_patent_level_embeddings.py --model distiluse
 
-# City-year embeddings and similarities
-python scripts/compute_city_year_embeddings.py --input data/patents_cleaned_with_city.dta --model minilm
-python scripts/compute_city_year_embeddings.py --input data/patents_cleaned_with_city.dta --model distiluse
-python scripts/compute_city_year_similarity.py --model minilm
-python scripts/compute_city_year_similarity.py --model distiluse
+# Aggregate patent-level vectors to firm-year and city-year vectors
+python scripts/03_aggregation/aggregate_firm_year_embeddings.py --model minilm
+python scripts/03_aggregation/aggregate_firm_year_embeddings.py --model distiluse
+python scripts/03_aggregation/aggregate_city_year_embeddings.py --model minilm
+python scripts/03_aggregation/aggregate_city_year_embeddings.py --model distiluse
 
-# Industry-peer metrics, merged panels, and comparison summaries
-python scripts/compute_industry_peer_similarity.py --models minilm,distiluse
-python scripts/build_similarity_panels.py --models minilm,distiluse
-python scripts/summarize_similarity_outputs.py --models minilm,distiluse
+# Similarity metrics, merged panels, and comparison summaries
+python scripts/04_similarity/compute_firm_year_similarity.py --model minilm
+python scripts/04_similarity/compute_firm_year_similarity.py --model distiluse
+python scripts/04_similarity/compute_city_year_similarity.py --model minilm
+python scripts/04_similarity/compute_city_year_similarity.py --model distiluse
+python scripts/04_similarity/compute_industry_peer_similarity.py --models minilm,distiluse
+python scripts/04_similarity/build_similarity_panels.py --models minilm,distiluse
+python scripts/05_postprocess/summarize_similarity_outputs.py --models minilm,distiluse
 ```
 
-Pass `--model` explicitly. Embedding scripts default to `minilm`, while the
-similarity scripts default to `distiluse` for compatibility.
+Pass `--model` explicitly. Patent-level embedding defaults to the city-enriched cleaned file so one run can feed both firm and city aggregation.
 
 ## Models
 
@@ -105,80 +106,66 @@ If `data/patents_cleaned.dta` lacks city fields, use
 `data/patents_cleaned_with_city.dta` for city workflows or rebuild it:
 
 ```bash
-python scripts/build_city_enriched_patents.py \
+python scripts/01_preprocess/build_city_enriched_patents.py \
   --input data/patents.dta \
   --output data/patents_cleaned_with_city.dta \
   --chunk-size 100000
 ```
 
-The Stata preprocessing script is still available:
-
-```stata
-do scripts/pre.do
-```
-
-It renames raw columns, keeps invention applications, granted inventions, and
-utility models, filters stock codes starting with `0`, `3`, or `6`, fills missing
-citations with `0`, and writes `data/patents_cleaned.dta`.
+The historical Stata preprocessing script has been archived at
+`scripts/archive/stata/pre.do`. New preprocessing and city enrichment work should
+use the Python entry points in `scripts/`.
 
 ## Main Entry Points
 
-| Script | Purpose |
-| --- | --- |
-| `scripts/compute_firm_year_embeddings.py` | Compute firm-year mean and citation-weighted embeddings |
-| `scripts/compute_firm_year_similarity.py` | Compute firm-year lag-1, lag-3, and cumulative similarity |
-| `scripts/compute_city_year_embeddings.py` | Compute city-year mean and citation-weighted embeddings |
-| `scripts/compute_city_year_similarity.py` | Compute city-year lag-1, lag-3, and cumulative similarity |
-| `scripts/compute_industry_peer_similarity.py` | Compare each firm-year with prior-year industry peers |
-| `scripts/build_similarity_panels.py` | Merge firm, city, and industry-peer outputs |
-| `scripts/summarize_similarity_outputs.py` | Build comparison, correlation, industry, and city summaries |
-| `scripts/build_city_enriched_patents.py` | Build city-enriched cleaned patent data from raw data |
-| `scripts/split_patents_dta_to_parquet.py` | Split raw Stata data into stock-range Parquet files |
-| `scripts/compare_validation_embeddings.py` | Compare validation embeddings against baseline outputs |
+| Stage | Script | Purpose |
+| --- | --- | --- |
+| `01_preprocess` | `scripts/01_preprocess/build_city_enriched_patents.py` | Build city-enriched cleaned patent data from raw data |
+| `01_preprocess` | `scripts/01_preprocess/split_patents_dta_to_parquet.py` | Split raw Stata data into stock-range Parquet files |
+| `02_embeddings` | `scripts/02_embeddings/compute_patent_level_embeddings.py` | Run SBERT model inference and save patent-level vectors |
+| `03_aggregation` | `scripts/03_aggregation/aggregate_firm_year_embeddings.py` | Aggregate patent-level vectors to firm-year embeddings |
+| `03_aggregation` | `scripts/03_aggregation/aggregate_city_year_embeddings.py` | Aggregate patent-level vectors to city-year embeddings |
+| `04_similarity` | `scripts/04_similarity/compute_firm_year_similarity.py` | Compute firm-year lag-1, lag-3, and cumulative similarity |
+| `04_similarity` | `scripts/04_similarity/compute_city_year_similarity.py` | Compute city-year lag-1, lag-3, and cumulative similarity |
+| `04_similarity` | `scripts/04_similarity/compute_industry_peer_similarity.py` | Compare each firm-year with prior-year industry peers |
+| `04_similarity` | `scripts/04_similarity/build_similarity_panels.py` | Merge firm, city, and industry-peer outputs |
+| `05_postprocess` | `scripts/05_postprocess/summarize_similarity_outputs.py` | Build comparison, correlation, industry, and city summaries |
 
-Compatibility wrappers remain available:
+Legacy top-level wrappers and pre-refactor R/Stata scripts have been removed from the active API. Historical code lives under `scripts/archive/`.
 
-| Wrapper | Current target |
-| --- | --- |
-| `scripts/patents_embeddings.py` | `compute_firm_year_embeddings.py` |
-| `scripts/city_embeddings.py` | `compute_city_year_embeddings.py` |
-| `scripts/industry_peer_similarity.py` | `compute_industry_peer_similarity.py` |
-| `scripts/industry_peer_similarity_v2.py` | `compute_industry_peer_similarity.py` |
-| `scripts/merge_similarities.py` | `build_similarity_panels.py` |
-| `scripts/compare_similarity_measures.py` | `summarize_similarity_outputs.py` |
+## Embedding and Aggregation Options
 
-## Embedding Options
-
-Common embedding options:
+Patent-level embedding options:
 
 | Option | Description |
 | --- | --- |
-| `--input PATH` | Patent input file. Defaults to `data/patents_cleaned.dta`. |
+| `--input PATH` | Patent input file. Defaults to `data/patents_cleaned_with_city.dta`. |
 | `--model minilm|distiluse` | Stable model alias. |
 | `--model-name NAME` | Full local model directory name. |
 | `--model-dir PATH` | Model parent directory. Defaults to `models`. |
 | `--output-dir PATH` | Output directory. Defaults to `output`. |
-| `--batch-size N` | Override auto-selected embedding batch size. |
+| `--batch-size N` | Override auto-selected model batch size. |
 | `--device cuda|cpu` | Force compute device. |
 | `--multi-gpu` | Use SentenceTransformers multi-process multi-GPU mode when available. |
-| `--row-chunk-size N` | Embed and aggregate rows in chunks to reduce peak memory. |
+| `--row-chunk-size N` | Process patent texts in row chunks. |
 | `--embed-backend overflow|legacy` | Long-text embedding strategy. Default is `overflow`. |
 | `--max-seq-length N` | Override tokenizer/model max sequence length. |
 | `--fp16` | Use fp16 model weights on CUDA. |
 | `--tf32` | Enable TF32 matmul on supported CUDA GPUs. |
-| `--include-empty-in-agg` | Include empty title/abstract rows in aggregation. |
-| `--save-npy` | Also save metadata CSV plus NumPy embedding arrays. |
+| `--max-chunks N` | Debug limit for chunked runs. |
 | `--verbose` | Enable debug logging. |
 
-Firm-year embeddings also support:
+Aggregation options:
 
 | Option | Description |
 | --- | --- |
-| `--data-dir PATH` | Deprecated alias for `--input` or a directory containing `patents_cleaned.dta`. |
-| `--tokenizers-parallelism VALUE` | Set `TOKENIZERS_PARALLELISM` before model loading. |
-| `--process-by-chunk` | Deprecated compatibility flag; maps to `--row-chunk-size 100000` when unset. |
-| `--max-chunks N` | Debug limit when row chunking is enabled. |
-| `--save-patent-level` | Save patent-level metadata and embedding `.npy` output. |
+| `--model minilm|distiluse` | Select the patent-level bundle and output suffix. |
+| `--output-dir PATH` | Directory containing patent-level inputs and aggregate outputs. |
+| `--patent-meta PATH` | Override patent-level metadata CSV. |
+| `--patent-embeddings PATH` | Override patent-level embedding `.npy`. |
+| `--row-chunk-size N` | Aggregate patent-level rows in chunks. |
+| `--include-empty-in-agg` | Include empty title/abstract rows in aggregation. |
+| `--save-npy` | Also save aggregate metadata CSV plus NumPy embedding arrays. |
 
 ## Output Files
 
@@ -267,11 +254,12 @@ reported `peer_sim_t*` values are the maximum valid peer cosine similarities.
 ```text
 .
 ├── scripts/
-│   ├── patent_similarity/       # Shared Python package for I/O, embeddings, aggregation, similarity, panels
-│   ├── compute_*                # Current Python pipeline entrypoints
-│   ├── build_*                  # Data and panel build scripts
-│   ├── *_embeddings.py          # Compatibility wrappers
-│   └── archive/r/               # Legacy R similarity scripts
+│   ├── 01_preprocess/           # Raw-data preparation and chunking
+│   ├── 02_embeddings/           # Patent-level SBERT model inference only
+│   ├── 03_aggregation/          # Firm-year and city-year embedding aggregation
+│   ├── 04_similarity/           # Firm, city, peer, and panel similarity calculations
+│   ├── 05_postprocess/          # Summaries, comparisons, and descriptive outputs
+│   └── archive/                 # Historical R/Stata scripts
 ├── data/                        # Large local inputs and mappings
 ├── models/                      # Local SBERT model directories
 ├── output/                      # Generated embeddings, similarities, panels, and summaries
