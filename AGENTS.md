@@ -25,7 +25,7 @@ The active pipeline is Python-first and organized into numbered folders that sor
 
 - Python 3 with `pandas`, `polars`, `numpy`, `torch`, `transformers`, `sentence-transformers`, and `tqdm`.
 - R scripts remain in `sample/` and `cases/` workflows where documented; old production R similarity scripts are archived.
-- Input data is stored mainly as Stata `.dta` files, with optional Parquet range files.
+- Input data is stored as raw Stata `.dta` files plus Parquet range and cleaned outputs.
 - Local model directories on the remote host:
   - `models/paraphrase-multilingual-MiniLM-L12-v2` -> short name `minilm`, 384 dimensions.
   - `models/distiluse-base-multilingual-cased-v2` -> short name `distiluse`, 512 dimensions.
@@ -36,7 +36,7 @@ The active pipeline is Python-first and organized into numbered folders that sor
 - `AGENTS.md`: this remote-first operating guide.
 - `requirements.txt`: Python dependency list.
 - `scripts/`: active Python pipeline folders.
-  - `01_preprocess/`: raw-data preparation, city enrichment, and Stata-to-Parquet chunking.
+  - `01_preprocess/`: raw-data preparation, Parquet cleaning, and Stata-to-Parquet chunking.
   - `02_embeddings/`: patent-level SBERT model inference only.
   - `03_aggregation/`: firm-year and city-year embedding aggregation from patent-level vectors.
   - `04_similarity/`: firm, city, industry-peer, and merged-panel similarity calculations.
@@ -54,9 +54,11 @@ The active pipeline is Python-first and organized into numbered folders that sor
 Core remote files:
 
 - `data/patents.dta`: raw source data.
-- `data/patents_cleaned.dta`: cleaned main input.
+- `data/patents_ranges/`: stock-code range Parquet inputs.
+- `data/patents_cleaned.parquet`: cleaned firm-year Parquet input built from range files.
+- `data/patents_cleaned.dta`: legacy cleaned main input.
 - `data/patents_cleaned_with_city.dta`: city-enriched input for city and merge workflows.
-- `data/stkcd_info.xlsx`: firm-year industry mapping.
+- `data/stkcd_info.csv`: firm-year industry mapping.
 
 Minimum columns for firm-year embeddings:
 
@@ -99,13 +101,10 @@ Refresh Python dependencies only when needed:
 pip install -r requirements.txt
 ```
 
-Build city-enriched cleaned data when city columns are needed:
+Build cleaned firm-year Parquet data from range files:
 
 ```bash
-python scripts/01_preprocess/build_city_enriched_patents.py \
-  --input data/patents.dta \
-  --output data/patents_cleaned_with_city.dta \
-  --chunk-size 100000
+python scripts/01_preprocess/build_parquet_patents.py
 ```
 
 Generate patent-level embeddings, aggregate them, and calculate similarities:

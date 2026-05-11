@@ -8,9 +8,7 @@ from pathlib import Path
 
 from .config import (
     DEFAULT_CITY_PATENTS_FILE,
-    DEFAULT_FIRM_YEAR_INPUT_DIR,
     DEFAULT_INDUSTRY_FILE,
-    DEFAULT_INDUSTRY_PEER_SIMILARITY_OUTPUT_DIR,
     DEFAULT_IPC_SIMILARITY_OUTPUT_DIR,
     DEFAULT_OUTPUT_DIR,
     DEFAULT_PATENTS_PARQUET_FILE,
@@ -58,13 +56,7 @@ def parse_industry_peer_cli(argv: list[str] | None = None) -> argparse.Namespace
     parser = argparse.ArgumentParser(description="Compute industry-peer similarity for patent embeddings")
     add_model_list(parser)
     parser.add_argument("--industry-path", type=Path, default=DEFAULT_INDUSTRY_FILE)
-    parser.add_argument(
-        "--input-dir",
-        type=Path,
-        default=DEFAULT_FIRM_YEAR_INPUT_DIR,
-        help="Directory containing firm-year aggregate embedding Parquet files",
-    )
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_INDUSTRY_PEER_SIMILARITY_OUTPUT_DIR)
+    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument(
         "--workers",
         "-w",

@@ -16,7 +16,7 @@ Each active folder may have a local `tools/` subfolder for helpers used by that 
 ## Active Entry Points
 
 ```bash
-python scripts/01_preprocess/build_city_enriched_patents.py --help
+python scripts/01_preprocess/build_parquet_patents.py --help
 python scripts/01_preprocess/split_patents_dta_to_parquet.py --help
 python scripts/02_embeddings/compute_patent_level_embeddings.py --help
 python scripts/03_aggregation/aggregate_firm_year_embeddings.py --help
@@ -32,8 +32,8 @@ python scripts/05_postprocess/summarize_similarity_outputs.py --help
 
 `02_embeddings/compute_patent_level_embeddings.py` writes:
 
-- `output/patent_level_{model}_meta.csv`
-- `output/patent_level_{model}_embeddings.npy`
+- `output/patent_embeddings/patent_level_{model}_meta.csv`
+- `output/patent_embeddings/patent_level_{model}_embeddings.npy`
 
 The `03_aggregation/` scripts read those files and write the existing downstream-compatible aggregate files:
 

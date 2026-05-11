@@ -11,7 +11,7 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging(args.verbose)
     if args.clean:
         raise ValueError("--clean is disabled to avoid deleting generated outputs implicitly")
-    process_models(args.models, args.industry_path, args.input_dir, args.output_dir)
+    process_models(args.models, args.industry_path, args.output_dir)
     return 0
 
 

@@ -8,10 +8,10 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[2]
 PROJECT_ROOT = SCRIPTS_DIR.parent
 DEFAULT_DATA_DIR = PROJECT_ROOT / "data"
 DEFAULT_MODELS_DIR = PROJECT_ROOT / "models"
-DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "output"
-DEFAULT_PATENTS_FILE = DEFAULT_DATA_DIR / "patents_cleaned.dta"
+DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "output" / "patent_embeddings"
+DEFAULT_PATENTS_FILE = DEFAULT_DATA_DIR / "patents_cleaned.parquet"
 DEFAULT_CITY_PATENTS_FILE = DEFAULT_DATA_DIR / "patents_cleaned_with_city.dta"
-DEFAULT_PATENT_LEVEL_INPUT = DEFAULT_CITY_PATENTS_FILE
+DEFAULT_PATENT_LEVEL_INPUT = DEFAULT_PATENTS_FILE
 
 STKCD_COLUMN = "stkcd"
 CITY_COLUMN = "city"
@@ -51,6 +51,10 @@ PATENT_LEVEL_COLUMNS = (
     CITY_CODE_COLUMN,
     PROVINCE_COLUMN,
     PROVINCE_CODE_COLUMN,
+    "Listdt",
+    "county",
+    "countyID",
+    "Ind",
     "city_year",
     "p_date",
     "p_type",

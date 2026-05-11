@@ -33,11 +33,13 @@ Run a reproducible full workflow for both supported models. The folder names are
 python scripts/02_embeddings/compute_patent_level_embeddings.py --model minilm
 python scripts/02_embeddings/compute_patent_level_embeddings.py --model distiluse
 
-# Aggregate patent-level vectors to firm-year and city-year vectors
+# Aggregate patent-level vectors to firm-year, city-year, and industry-year vectors
 python scripts/03_aggregation/aggregate_firm_year_embeddings.py --model minilm
 python scripts/03_aggregation/aggregate_firm_year_embeddings.py --model distiluse
 python scripts/03_aggregation/aggregate_city_year_embeddings.py --model minilm
 python scripts/03_aggregation/aggregate_city_year_embeddings.py --model distiluse
+python scripts/03_aggregation/aggregate_industry_year_embeddings.py --model minilm
+python scripts/03_aggregation/aggregate_industry_year_embeddings.py --model distiluse
 
 # Similarity metrics, merged panels, and comparison summaries
 python scripts/04_similarity/compute_firm_year_similarity.py --model minilm
@@ -67,11 +69,13 @@ not require network access.
 
 Main input files:
 
-- `data/patents_cleaned.dta`: cleaned firm-year patent input.
+- `data/patents_ranges/`: stock-code range Parquet files generated from raw data.
+- `data/patents_cleaned.parquet`: cleaned firm-year patent input built from
+  `data/patents_ranges/`.
+- `data/patents_cleaned.dta`: legacy cleaned firm-year patent input.
 - `data/patents_cleaned_with_city.dta`: cleaned input with city fields.
-- `data/patents.dta`: raw source data, used only when preprocessing or rebuilding
-  city-enriched data.
-- `data/stkcd_info.xlsx`: firm-year industry mapping used by peer similarity.
+- `data/patents.dta`: raw source data, used when rebuilding range files.
+- `data/stkcd_info.csv`: firm-year industry mapping used by peer similarity.
 
 The embedding scripts can read `.dta` and single `.parquet` inputs. Required
 columns for firm-year runs are:
@@ -93,38 +97,37 @@ Optional columns used by aggregation and outputs:
 | `p_type` | Patent type |
 | `p_ipc` | IPC classification |
 
-City-year runs additionally require:
+City-year runs additionally require firm-year metadata with `countyID`; the
+aggregation derives `city_code` from the first four digits of zero-padded
+`countyID` and balances the panel against `data/stkcd_info.csv`.
 
 | Column | Meaning |
 | --- | --- |
 | `city` | City name |
-| `city_code` | City code |
+| `countyID` | County/district code; first four digits define `city_code` |
 | `province` | Province name |
-| `province_code` | Province code |
 
-If `data/patents_cleaned.dta` lacks city fields, use
-`data/patents_cleaned_with_city.dta` for city workflows or rebuild it:
+Use `data/patents_cleaned_with_city.dta` for city workflows that need city
+fields. Build the cleaned firm-year Parquet input from the range files with:
 
 ```bash
-python scripts/01_preprocess/build_city_enriched_patents.py \
-  --input data/patents.dta \
-  --output data/patents_cleaned_with_city.dta \
-  --chunk-size 100000
+python scripts/01_preprocess/build_parquet_patents.py
 ```
 
 The historical Stata preprocessing script has been archived at
-`scripts/archive/stata/pre.do`. New preprocessing and city enrichment work should
-use the Python entry points in `scripts/`.
+`scripts/archive/stata/pre.do`. New preprocessing work should use the Python
+entry points in `scripts/`.
 
 ## Main Entry Points
 
 | Stage | Script | Purpose |
 | --- | --- | --- |
-| `01_preprocess` | `scripts/01_preprocess/build_city_enriched_patents.py` | Build city-enriched cleaned patent data from raw data |
+| `01_preprocess` | `scripts/01_preprocess/build_parquet_patents.py` | Build cleaned firm-year patent Parquet data from range files |
 | `01_preprocess` | `scripts/01_preprocess/split_patents_dta_to_parquet.py` | Split raw Stata data into stock-range Parquet files |
 | `02_embeddings` | `scripts/02_embeddings/compute_patent_level_embeddings.py` | Run SBERT model inference and save patent-level vectors |
 | `03_aggregation` | `scripts/03_aggregation/aggregate_firm_year_embeddings.py` | Aggregate patent-level vectors to firm-year embeddings |
 | `03_aggregation` | `scripts/03_aggregation/aggregate_city_year_embeddings.py` | Aggregate patent-level vectors to city-year embeddings |
+| `03_aggregation` | `scripts/03_aggregation/aggregate_industry_year_embeddings.py` | Aggregate patent-level vectors to industry-year embeddings |
 | `04_similarity` | `scripts/04_similarity/compute_firm_year_similarity.py` | Compute firm-year lag-1, lag-3, and cumulative similarity |
 | `04_similarity` | `scripts/04_similarity/compute_city_year_similarity.py` | Compute city-year lag-1, lag-3, and cumulative similarity |
 | `04_similarity` | `scripts/04_similarity/compute_industry_peer_similarity.py` | Compare each firm-year with prior-year industry peers |
@@ -139,11 +142,11 @@ Patent-level embedding options:
 
 | Option | Description |
 | --- | --- |
-| `--input PATH` | Patent input file. Defaults to `data/patents_cleaned_with_city.dta`. |
+| `--input PATH` | Patent input file. Defaults to `data/patents_cleaned.parquet`. |
 | `--model minilm|distiluse` | Stable model alias. |
 | `--model-name NAME` | Full local model directory name. |
 | `--model-dir PATH` | Model parent directory. Defaults to `models`. |
-| `--output-dir PATH` | Output directory. Defaults to `output`. |
+| `--output-dir PATH` | Output directory. Defaults to `output/patent_embeddings`. |
 | `--batch-size N` | Override auto-selected model batch size. |
 | `--device cuda|cpu` | Force compute device. |
 | `--multi-gpu` | Use SentenceTransformers multi-process multi-GPU mode when available. |
@@ -178,8 +181,13 @@ Firm-year embedding outputs:
 
 City-year embedding outputs:
 
-- `output/city_year_{model}_embeddings.csv`
-- `output/city_year_citweighted_{model}_embeddings.csv`
+- `output/city_year_embeddings/city_year_{model}_embeddings.parquet`
+- `output/city_year_embeddings/city_year_citweighted_{model}_embeddings.parquet`
+
+Industry-year embedding outputs:
+
+- `output/industry_year_embeddings/industry_year_{model}_embeddings.parquet`
+- `output/industry_year_embeddings/industry_year_citweighted_{model}_embeddings.parquet`
 
 If `--save-npy` is used, each embedding bundle also writes:
 
@@ -188,8 +196,8 @@ If `--save-npy` is used, each embedding bundle also writes:
 
 If firm `--save-patent-level` is used:
 
-- `output/patent_level_{model}_meta.csv`
-- `output/patent_level_{model}_embeddings.npy`
+- `output/patent_embeddings/patent_level_{model}_meta.csv`
+- `output/patent_embeddings/patent_level_{model}_embeddings.npy`
 
 Similarity outputs:
 
@@ -219,6 +227,8 @@ Embedding CSV metadata columns include:
 - City-year: `city`, `city_code`, `province`, `p_year`, `city_year`,
   `n_patents`, `n_texts_used`, `total_citations`, `mean_citations`, `emb_0`
   ...
+- Industry-year: `Ind`, `p_year`, `industry_year`, `n_patents`,
+  `n_texts_used`, `total_citations`, `mean_citations`, `emb_0` ...
 
 Similarity CSVs include `cos_sim_lag1`, `cos_sim_lag3`, and
 `cos_sim_cumulative`. Merged files also include citation-weighted versions:
@@ -247,7 +257,8 @@ when a group has zero total citations.
 
 Industry-peer similarity compares a firm-year vector against other firms in the
 same industry from years `t-1`, `t-2`, and `t-3`, excluding the same firm. The
-reported `peer_sim_t*` values are the maximum valid peer cosine similarities.
+reported `peer_sim_t*` values are cosine similarities to the valid peer centroid
+for the corresponding lag year.
 
 ## Project Layout
 

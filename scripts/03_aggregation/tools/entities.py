@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .config import CITY_CODE_COLUMN, CITY_COLUMN, PROVINCE_COLUMN, STKCD_COLUMN, YEAR_COLUMN
+from .config import (
+    CITY_CODE_COLUMN,
+    CITY_COLUMN,
+    COUNTY_ID_COLUMN,
+    INDUSTRY_COLUMN,
+    PROVINCE_COLUMN,
+    STKCD_COLUMN,
+    YEAR_COLUMN,
+)
 
 
 @dataclass(frozen=True)
@@ -46,8 +54,19 @@ CITY_SPEC = EntitySpec(
     id_col=CITY_CODE_COLUMN,
     year_col=YEAR_COLUMN,
     key_col="city_year",
-    required_cols=(CITY_CODE_COLUMN, YEAR_COLUMN),
+    required_cols=(COUNTY_ID_COLUMN, YEAR_COLUMN),
     sort_cols=(CITY_CODE_COLUMN, YEAR_COLUMN),
     output_prefix="city_year",
     embedding_metadata_cols=(CITY_COLUMN, CITY_CODE_COLUMN, PROVINCE_COLUMN, YEAR_COLUMN, "city_year"),
+)
+
+INDUSTRY_SPEC = EntitySpec(
+    name="industry",
+    id_col=INDUSTRY_COLUMN,
+    year_col=YEAR_COLUMN,
+    key_col="industry_year",
+    required_cols=(INDUSTRY_COLUMN, YEAR_COLUMN),
+    sort_cols=(INDUSTRY_COLUMN, YEAR_COLUMN),
+    output_prefix="industry_year",
+    embedding_metadata_cols=(INDUSTRY_COLUMN, YEAR_COLUMN, "industry_year"),
 )

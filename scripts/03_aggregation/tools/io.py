@@ -26,13 +26,13 @@ def read_csv(path: str | Path) -> pl.DataFrame:
 
 
 def load_patent_level_bundle(
-    output_dir: Path,
+    patent_level_dir: Path,
     model: str,
     *,
     meta_path: Path | None = None,
     embeddings_path: Path | None = None,
 ) -> tuple[pl.DataFrame, np.ndarray]:
-    default_meta, default_embeddings = patent_level_paths(output_dir, model)
+    default_meta, default_embeddings = patent_level_paths(patent_level_dir, model)
     meta_path = meta_path or default_meta
     embeddings_path = embeddings_path or default_embeddings
     meta = read_csv(meta_path)
@@ -62,15 +62,22 @@ def save_embedding_bundle(
         embeddings = embeddings.reshape((embeddings.shape[0], 1))
     emb_cols = {f"emb_{i}": embeddings[:, i] for i in range(embeddings.shape[1])}
     emb_df = pl.DataFrame(emb_cols) if emb_cols else pl.DataFrame()
+    if emb_cols:
+        emb_df = emb_df.with_columns(
+            [
+                pl.when(pl.col(col).is_nan()).then(None).otherwise(pl.col(col)).alias(col)
+                for col in emb_df.columns
+            ]
+        )
     full = pl.concat([meta, emb_df], how="horizontal") if emb_cols else meta
-    csv_path = output_dir / f"{prefix}{suffix}_embeddings.csv"
-    full.write_csv(csv_path)
-    logging.getLogger(__name__).info("Saved embeddings CSV: %s", csv_path)
+    parquet_path = output_dir / f"{prefix}{suffix}_embeddings.parquet"
+    full.write_parquet(parquet_path)
+    logging.getLogger(__name__).info("Saved embeddings Parquet: %s", parquet_path)
 
     if save_npy:
-        meta_path = output_dir / f"{prefix}{suffix}_meta.csv"
+        meta_path = output_dir / f"{prefix}{suffix}_meta.parquet"
         emb_path = output_dir / f"{prefix}{suffix}_embeddings.npy"
-        meta.write_csv(meta_path)
+        meta.write_parquet(meta_path)
         np.save(emb_path, embeddings.astype(np.float32, copy=False))
-        logging.getLogger(__name__).info("Saved metadata CSV: %s", meta_path)
+        logging.getLogger(__name__).info("Saved metadata Parquet: %s", meta_path)
         logging.getLogger(__name__).info("Saved embeddings NPY: %s", emb_path)

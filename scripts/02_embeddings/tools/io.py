@@ -113,7 +113,25 @@ def normalize_source_columns(df: pl.DataFrame) -> pl.DataFrame:
 
 
 def _read_columns() -> list[str]:
-    base = ["p_id", "stkcd", "p_year", "p_tt", "p_abs", "p_date", "p_type", "p_ipc", "p_cite", "city", "city_code", "province", "province_code"]
+    base = [
+        "p_id",
+        "stkcd",
+        "p_year",
+        "p_tt",
+        "p_abs",
+        "p_date",
+        "p_type",
+        "p_ipc",
+        "p_cite",
+        "city",
+        "city_code",
+        "province",
+        "province_code",
+        "Listdt",
+        "county",
+        "countyID",
+        "Ind",
+    ]
     return list(dict.fromkeys([*base, *RAW_COLUMN_RENAMES.keys()]))
 
 
@@ -130,6 +148,8 @@ def _normalize_optional_identifiers(df: pl.DataFrame) -> pl.DataFrame:
         exprs.append(pl.when(citation < 0).then(0.0).otherwise(citation).alias(CITATION_COLUMN))
     if "p_date" in df.columns:
         exprs.append(pl.col("p_date").cast(pl.Datetime, strict=False).alias("p_date"))
+    if "countyID" in df.columns:
+        exprs.append(pl.col("countyID").cast(pl.Int64, strict=False).alias("countyID"))
     return df.with_columns(exprs) if exprs else df
 
 

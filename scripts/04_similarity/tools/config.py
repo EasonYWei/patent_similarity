@@ -8,8 +8,13 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[2]
 PROJECT_ROOT = SCRIPTS_DIR.parent
 DEFAULT_DATA_DIR = PROJECT_ROOT / "data"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "output"
+DEFAULT_FIRM_YEAR_INPUT_DIR = DEFAULT_OUTPUT_DIR / "firm_year_embeddings"
+DEFAULT_FIRM_SIMILARITY_OUTPUT_DIR = DEFAULT_OUTPUT_DIR / "firm_similarity"
+DEFAULT_IPC_SIMILARITY_OUTPUT_DIR = DEFAULT_OUTPUT_DIR / "ipc_similarity"
+DEFAULT_INDUSTRY_PEER_SIMILARITY_OUTPUT_DIR = DEFAULT_OUTPUT_DIR / "industry_peer_similarity"
 DEFAULT_CITY_PATENTS_FILE = DEFAULT_DATA_DIR / "patents_cleaned_with_city.dta"
-DEFAULT_INDUSTRY_FILE = DEFAULT_DATA_DIR / "stkcd_info.xlsx"
+DEFAULT_INDUSTRY_FILE = DEFAULT_DATA_DIR / "stkcd_info.csv"
+DEFAULT_PATENTS_PARQUET_FILE = DEFAULT_DATA_DIR / "patents_cleaned.parquet"
 
 STKCD_COLUMN = "stkcd"
 CITY_COLUMN = "city"
@@ -54,6 +59,10 @@ def embedding_csv_name(prefix: str, model_name_or_short: str) -> str:
     return f"{prefix}{model_suffix(model_name_or_short)}_embeddings.csv"
 
 
+def embedding_parquet_name(prefix: str, model_name_or_short: str) -> str:
+    return f"{prefix}{model_suffix(model_name_or_short)}_embeddings.parquet"
+
+
 def similarity_csv_name(prefix: str, model_name_or_short: str, *, weighted: bool = False, merged: bool = False) -> str:
     suffix = model_suffix(model_name_or_short)
     if merged:
@@ -61,3 +70,12 @@ def similarity_csv_name(prefix: str, model_name_or_short: str, *, weighted: bool
     if weighted:
         return f"{prefix}_similarity_citweighted{suffix}.csv"
     return f"{prefix}_similarity{suffix}.csv"
+
+
+def similarity_parquet_name(prefix: str, model_name_or_short: str, *, weighted: bool = False, merged: bool = False) -> str:
+    suffix = model_suffix(model_name_or_short)
+    if merged:
+        return f"{prefix}_similarity_merged{suffix}.parquet"
+    if weighted:
+        return f"{prefix}_similarity_citweighted{suffix}.parquet"
+    return f"{prefix}_similarity{suffix}.parquet"

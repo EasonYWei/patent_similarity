@@ -13,7 +13,7 @@ import pandas as pd
 
 DEFAULT_MINI_FILE = Path("output/stkcd_year_similarity_merged_minilm.csv")
 DEFAULT_DIST_FILE = Path("output/stkcd_year_similarity_merged_distiluse.csv")
-DEFAULT_META_FILE = Path("data/stkcd_info.xlsx")
+DEFAULT_META_FILE = Path("data/stkcd_info.csv")
 DEFAULT_CANDIDATE_OUTPUT = Path("cases/transformation_case_candidates.csv")
 DEFAULT_TOP_OUTPUT = Path("cases/transformation_case_top5.csv")
 
@@ -138,7 +138,12 @@ def load_similarity(path: Path, suffix: str) -> pd.DataFrame:
 
 
 def load_metadata(path: Path) -> pd.DataFrame:
-    df = pd.read_excel(path)
+    if path.suffix.lower() == ".csv":
+        df = pd.read_csv(path)
+    elif path.suffix.lower() in {".xls", ".xlsx"}:
+        df = pd.read_excel(path)
+    else:
+        raise ValueError(f"Unsupported metadata format for {path}. Expected .csv, .xls, or .xlsx")
     required = {"stkcd", "year", "province", "city", "Ind"}
     missing = sorted(required.difference(df.columns))
     if missing:

@@ -28,10 +28,32 @@ def read_csv(path: str | Path) -> pl.DataFrame:
     return pl.read_csv(path, infer_schema_length=10_000)
 
 
+def read_parquet(path: str | Path) -> pl.DataFrame:
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Input file not found: {path}")
+    return pl.read_parquet(path)
+
+
+def read_frame(path: str | Path) -> pl.DataFrame:
+    path = Path(path)
+    if path.suffix.lower() == ".parquet":
+        return read_parquet(path)
+    if path.suffix.lower() == ".csv":
+        return read_csv(path)
+    raise ValueError(f"Unsupported input format for {path}. Expected .parquet or .csv")
+
+
 def write_csv(df: pl.DataFrame, path: str | Path) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     df.write_csv(path)
+
+
+def write_parquet(df: pl.DataFrame, path: str | Path) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df.write_parquet(path)
 
 
 def read_excel(path: str | Path) -> pl.DataFrame:
