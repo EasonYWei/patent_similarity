@@ -8,7 +8,6 @@ Active code is organized into numbered pipeline folders so a directory listing s
 - `02_embeddings/`: patent-level SBERT model calls only.
 - `03_aggregation/`: aggregate patent-level vectors into firm-year and city-year embeddings.
 - `04_similarity/`: calculate firm, city, industry-peer, and merged-panel similarities.
-- `05_postprocess/`: reporting, comparison tables, correlations, and descriptive statistics.
 - `archive/`: historical R/Stata scripts; reference-only.
 
 Each active folder may have a local `tools/` subfolder for helpers used by that stage. Do not add a new top-level shared package without an explicit design decision.
@@ -25,7 +24,6 @@ python scripts/04_similarity/compute_firm_year_similarity.py --help
 python scripts/04_similarity/compute_city_year_similarity.py --help
 python scripts/04_similarity/compute_industry_peer_similarity.py --help
 python scripts/04_similarity/build_similarity_panels.py --help
-python scripts/05_postprocess/summarize_similarity_outputs.py --help
 ```
 
 ## Patent-Level First Workflow

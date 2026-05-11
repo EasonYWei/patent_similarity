@@ -19,7 +19,7 @@
 
 This project computes semantic embeddings for patent title and abstract text using multilingual Sentence-BERT models. It aggregates patent embeddings at firm-year and city-year levels, then computes lag-1, lag-3, and cumulative cosine similarities for innovation and technology-change analysis.
 
-The active pipeline is Python-first and organized into numbered folders that sort in execution order: `01_preprocess`, `02_embeddings`, `03_aggregation`, `04_similarity`, and `05_postprocess`. Historical R and Stata scripts are kept only under `scripts/archive/` for reference.
+The active pipeline is Python-first and organized into numbered folders that sort in execution order: `01_preprocess`, `02_embeddings`, `03_aggregation`, and `04_similarity`. Historical R and Stata scripts are kept only under `scripts/archive/` for reference.
 
 ## Stack And Models
 
@@ -40,14 +40,13 @@ The active pipeline is Python-first and organized into numbered folders that sor
   - `02_embeddings/`: patent-level SBERT model inference only.
   - `03_aggregation/`: firm-year and city-year embedding aggregation from patent-level vectors.
   - `04_similarity/`: firm, city, industry-peer, and merged-panel similarity calculations.
-  - `05_postprocess/`: comparison summaries, correlations, and descriptive outputs.
   - `archive/r/`: historical pre-refactor production R similarity scripts.
   - `archive/stata/`: historical Stata preprocessing script.
 - `cases/`: technology-transformation case identification and patent-text extraction.
 - `sample/`: small inspection and debugging workflow.
 - `data/`: large `.dta` inputs and mapping files.
 - `models/`: local SBERT model directories.
-- `output/`: generated embeddings, similarities, merged panels, and summaries.
+- `output/`: generated embeddings, similarities, and merged panels.
 
 ## Data Schema And Required Inputs
 
@@ -124,12 +123,11 @@ python scripts/04_similarity/compute_city_year_similarity.py --model minilm
 python scripts/04_similarity/compute_city_year_similarity.py --model distiluse
 ```
 
-Run industry, merged panel, and comparison workflows:
+Run industry and merged-panel workflows:
 
 ```bash
 python scripts/04_similarity/compute_industry_peer_similarity.py --models minilm,distiluse
 python scripts/04_similarity/build_similarity_panels.py --data-path ./data/patents_cleaned_with_city.dta --models minilm,distiluse
-python scripts/05_postprocess/summarize_similarity_outputs.py --models minilm,distiluse
 ```
 
 ## Active CLI Notes
@@ -182,10 +180,6 @@ Downstream merged analysis:
 - `output/industry_peer_similarity_merged_{model}.csv`
 - `output/merged_similarity_by_firm_{model}.csv`
 - `output/merged_similarity_by_city_{model}.csv`
-- `output/similarity_by_industry_{model}.csv`
-- `output/similarity_by_city_summary_{model}.csv`
-- `output/similarity_comparison_{model}.csv`
-- `output/similarity_correlation_{model}.csv`
 
 ## Development Conventions
 

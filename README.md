@@ -41,14 +41,13 @@ python scripts/03_aggregation/aggregate_city_year_embeddings.py --model distilus
 python scripts/03_aggregation/aggregate_industry_year_embeddings.py --model minilm
 python scripts/03_aggregation/aggregate_industry_year_embeddings.py --model distiluse
 
-# Similarity metrics, merged panels, and comparison summaries
+# Similarity metrics and merged panels
 python scripts/04_similarity/compute_firm_year_similarity.py --model minilm
 python scripts/04_similarity/compute_firm_year_similarity.py --model distiluse
 python scripts/04_similarity/compute_city_year_similarity.py --model minilm
 python scripts/04_similarity/compute_city_year_similarity.py --model distiluse
 python scripts/04_similarity/compute_industry_peer_similarity.py --models minilm,distiluse
 python scripts/04_similarity/build_similarity_panels.py --models minilm,distiluse
-python scripts/05_postprocess/summarize_similarity_outputs.py --models minilm,distiluse
 ```
 
 Pass `--model` explicitly. Patent-level embedding defaults to the city-enriched cleaned file so one run can feed both firm and city aggregation.
@@ -132,7 +131,6 @@ entry points in `scripts/`.
 | `04_similarity` | `scripts/04_similarity/compute_city_year_similarity.py` | Compute city-year lag-1, lag-3, and cumulative similarity |
 | `04_similarity` | `scripts/04_similarity/compute_industry_peer_similarity.py` | Compare each firm-year with prior-year industry peers |
 | `04_similarity` | `scripts/04_similarity/build_similarity_panels.py` | Merge firm, city, and industry-peer outputs |
-| `05_postprocess` | `scripts/05_postprocess/summarize_similarity_outputs.py` | Build comparison, correlation, industry, and city summaries |
 
 Legacy top-level wrappers and pre-refactor R/Stata scripts have been removed from the active API. Historical code lives under `scripts/archive/`.
 
@@ -208,17 +206,13 @@ Similarity outputs:
 - `output/city_year_similarity_citweighted_{model}.csv`
 - `output/city_year_similarity_merged_{model}.csv`
 
-Industry, merged-panel, and summary outputs:
+Industry and merged-panel outputs:
 
 - `output/industry_peer_similarity_{model}.csv`
 - `output/industry_peer_similarity_citweighted_{model}.csv`
 - `output/industry_peer_similarity_merged_{model}.csv`
 - `output/merged_similarity_by_firm_{model}.csv`
 - `output/merged_similarity_by_city_{model}.csv`
-- `output/similarity_comparison_{model}.csv`
-- `output/similarity_correlation_{model}.csv`
-- `output/similarity_by_industry_{model}.csv`
-- `output/similarity_by_city_summary_{model}.csv`
 
 Embedding CSV metadata columns include:
 
@@ -269,11 +263,10 @@ for the corresponding lag year.
 │   ├── 02_embeddings/           # Patent-level SBERT model inference only
 │   ├── 03_aggregation/          # Firm-year and city-year embedding aggregation
 │   ├── 04_similarity/           # Firm, city, peer, and panel similarity calculations
-│   ├── 05_postprocess/          # Summaries, comparisons, and descriptive outputs
 │   └── archive/                 # Historical R/Stata scripts
 ├── data/                        # Large local inputs and mappings
 ├── models/                      # Local SBERT model directories
-├── output/                      # Generated embeddings, similarities, panels, and summaries
+├── output/                      # Generated embeddings, similarities, and panels
 ├── sample/                      # Small sample/debug workflows
 ├── cases/                       # Technology-transformation case extraction
 ├── requirements.txt
